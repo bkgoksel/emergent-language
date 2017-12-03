@@ -1,0 +1,4 @@
+.mypy_cache/
+.ropeproject/
+mypy.ini
+*.sw*
