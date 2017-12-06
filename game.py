@@ -1,7 +1,7 @@
 from typing import Tuple, NamedTuple, List, Optional, Set, Any
 import numpy as np # type: ignore
 import constants
-from model import VectorizedGame
+from model import GameModule
 
 Location = NamedTuple('Location', [('x', float), ('y', float)])
 Color = NamedTuple('Color', [('r', int), ('g', int), ('b', int)])
@@ -9,8 +9,8 @@ Goal = NamedTuple('Goal', [('agent_id', int), ('location', Location)])
 
 GameConfig = NamedTuple('GameConfig', [
     ('world_dim', 'Location'),
-    ('num_agents', int),
-    ('num_landmarks', int),
+    ('max_agents', int),
+    ('max_landmarks', int),
     ('num_timesteps', int),
     ('use_strict_colors', bool),
     ('strict_colors', List[Color]),
@@ -35,7 +35,9 @@ Agent = NamedTuple('Agent', [
 
 GameState = NamedTuple('GameState', [
     ('agents', List[Agent]),
-    ('landmarks', List[Landmark])
+    ('landmarks', List[Landmark]),
+    ('num_agents', int),
+    ('num_landmarks', int)
 ])
 
 
@@ -47,7 +49,7 @@ class Game():
         config = GameConfig(
                 Location(0,0),
                 vec_game.num_agents,
-                vec_game.physical.shape[0] - vec_game.num_agents,
+                vec_game.locations.shape[0] - vec_game.num_agents,
                 0,
                 False,
                 [],
@@ -59,9 +61,9 @@ class Game():
         for i in range(vec_game.num_agents):
             agents.append(
                     Agent(
-                        Location(vec_game.physical[i,0], vec_game.physical[i,1]),
-                        Color(vec_game.physical[i,2], vec_game.physical[i,3], vec_game.physical[i,4]),
-                        vec_game.physical[i,5],
+                        Location(vec_game.locations[i,0], vec_game.physical[i,1]),
+                        Color(vec_game.physical[i,0], vec_game.physical[i,1], vec_game.physical[i,2]),
+                        vec_game.physical[i,3],
                         Goal(
                             Location(vec_game.goals[i,0], vec_game.goals[i,1]),
                             vec_game.goals[i,2]
@@ -69,12 +71,12 @@ class Game():
                         )
                     )
         landmarks = [] # type: List[Landmark]
-        for i in range(vec_game.num_agents, vec_game.physical.shape[0]):
+        for i in range(vec_game.num_agents, vec_game.locations.shape[0]):
             landmarks.append(
                     Landmark(
-                        Location(vec_game.physical[i,0], vec_game.physical[i,1]),
-                        Color(vec_game.physical[i,2], vec_game.physical[i,3], vec_game.physical[i,4]),
-                        vec_game.physical[i,5]
+                        Location(vec_game.locations[i,0], vec_game.locations[i,1]),
+                        Color(vec_game.physical[i,0], vec_game.physical[i,1], vec_game.physical[i,2]),
+                        vec_game.physical[i,3]
                         )
                     )
         state = GameState(agents, landmarks)
@@ -88,7 +90,9 @@ class Game():
             self.initialize_random_state()
 
     def initialize_random_state(self) -> None:
-        self.state = GameState([],[])
+        num_landmarks = np.random.randint(1, self.config.max_landmarks)
+        num_agents = np.random.randint(1, self.config.max_agents)
+        self.state = GameState([],[], num_landmarks, num_agents)
         self.init_random_landmarks()
         self.init_random_agents()
 
@@ -108,44 +112,46 @@ class Game():
         return l
 
     def init_random_landmarks(self) -> None:
-        for i in range(self.config.num_landmarks):
+        for i in range(self.state.num_landmarks):
             c = self.get_random_color()
             l = self.get_random_location()
             s = np.random.choice(self.config.shapes) if self.config.use_shapes else None
             self.state.landmarks.append(Landmark(c,l,s))
 
     def init_random_agents(self) -> None:
-        goal_order = list(range(self.config.num_agents)) # type: List[int]
+        goal_order = list(range(self.state.num_agents)) # type: List[int]
         np.random.shuffle(goal_order)
-        for i in range(self.config.num_agents):
+        for i in range(self.state.num_agents):
             c = self.get_random_color()
             l = self.get_random_location()
             s = np.random.choice(self.config.shapes) if self.config.use_shapes else None
             g = Goal(goal_order[i], np.random.choice(self.state.landmarks).location)
             self.state.agents.append(Agent(c, l, s, g))
 
-    def get_vectorized_state(self) -> VectorizedGame:
-        agents = np.empty([self.config.num_agents, constants.AGENT_EMBED_DIM])
-        landmarks = np.empty([self.config.num_landmarks, constants.LANDMARK_EMBED_DIM])
-        goals = np.empty([self.config.num_agents, constants.GOAL_EMBED_DIM])
+    def get_vectorized_state(self) -> GameModule:
+        agent_locations = np.empty([self.state.num_agents, 2])
+        agent_physical = np.empty([self.state.num_agents, constants.ENTITY_EMBED_DIM])
+        landmark_locations= np.empty([self.state.num_landmarks, 2])
+        landmark_physical = np.empty([self.state.num_landmarks, constants.ENTITY_EMBED_DIM])
+        goals = np.empty([self.state.num_agents, constants.GOAL_EMBED_DIM])
 
         for i, agent in enumerate(self.state.agents):
-            agents[i][0] = agent.location.x
-            agents[i][1] = agent.location.y
-            agents[i][2] = agent.color.r
-            agents[i][3] = agent.color.g
-            agents[i][4] = agent.color.b
-            agents[i][5] = agent.shape
+            agent_locations[i][0] = agent.location.x
+            agent_locations[i][1] = agent.location.y
+            agent_physical[i][0] = agent.color.r
+            agent_physical[i][1] = agent.color.g
+            agent_physical[i][2] = agent.color.b
+            agent_physical[i][3] = agent.shape
             goals[i][0] = agent.goal.location.x
             goals[i][1] = agent.goal.location.y
             goals[i][2] = agent.goal.agent_id
 
         for i, landmark in enumerate(self.state.landmarks):
-            landmarks[i][0] = landmark.location.x
-            landmarks[i][1] = landmark.location.y
-            landmarks[i][2] = landmark.color.r
-            landmarks[i][3] = landmark.color.g
-            landmarks[i][4] = landmark.color.b
-            landmarks[i][5] = landmark.shape
+            landmark_locations[i][0] = landmark.location.x
+            landmark_locations[i][1] = landmark.location.y
+            landmark_physical[i][0] = landmark.color.r
+            landmark_physical[i][1] = landmark.color.g
+            landmark_physical[i][2] = landmark.color.b
+            landmark_physical[i][3] = landmark.shape
 
-        return VectorizedGame(agents, landmarks, goals, self.config.vocab_size, self.config.memory_size)
+        return GameModule(agent_locations, agent_physical, landmark_locations, landmark_physical, goals, self.config.vocab_size, self.config.memory_size)

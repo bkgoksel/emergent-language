@@ -93,7 +93,10 @@ The agent module can thus follow the gradient of the reward all the way back thr
 Training in this case involves repeatedly generating sets of 1024 initial game states and passing them to the agent module
 
 Things to figure out:
-- Storing game state in single multi-dimensional tensor
+- Storing game state in single multi-dimensional tensor (storing in module instead)
 - Having parts of agent module work with variable number of modules for each game in the batch (different number of comm. streams in each game, how to batch the comm. stream module?)
-- Building the reward and transition dynamics in the Agent module in a differentiable way
+- Building the reward and transition dynamics in the Agent module in a differentiable way (building in game module instead)
 - Ensuring gradients of final reward can be traced end-to-end
+
+- How to predict goals when all coordinate systems are relative?
+  - Predict the agent color and shape for the goal, predict location relative to yourself
