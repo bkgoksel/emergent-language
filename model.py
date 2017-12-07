@@ -9,16 +9,6 @@ from configs import ProcessingModuleConfig, GoalPredictingProcessingModuleConfig
 import pdb
 
 
-# TODO: GRUCell expects [num_batches, input_size] inputs (same for memory)
-
-def gumbel_softmax(x, temperature=1.0):
-    y = x + sample_gumbel(x.size())
-    return nn.Softmax(y/temperature)
-
-def sample_gumbel(shape, eps=1e-20):
-    U = Variable(torch.rand(shape))
-    return -torch.log(-torch.log(U + eps) + eps)
-
 """
     A Processing module takes an input from a stream and the independent memory
     of that stream and runs a single timestep of a GRU cell, followed by
@@ -155,7 +145,8 @@ class GameModule(nn.Module):
         - scalar: cost received in this episode of the game
     """
     def forward(self, movements, utterances, goal_predictions):
-        self.locations += movements
+        new_locations = self.locations + movements
+        self.locations = new_locations
         agent_baselines = self.locations[:self.num_agents].unsqueeze(1)
         self.observations = self.locations.unsqueeze(0)- agent_baselines
         self.utterances = utterances
@@ -175,7 +166,7 @@ class GameModule(nn.Module):
     def compute_physical_cost(self):
         sorted_goals = self.goals[torch.sort(self.goals[:,2])[1]][:,:2]
         # [num_agents x 2] -> each agent's goal location
-        return -torch.sum(
+        return torch.sum(
                 torch.sqrt(
                     torch.sum(
                         torch.pow(self.locations[:self.num_agents,:] - sorted_goals, 2))))
@@ -190,13 +181,13 @@ class GameModule(nn.Module):
     Computes the total cost agents get from uttering
     """
     def compute_utterance_cost(self):
-        return -torch.sqrt(torch.sum(torch.pow(self.utterances,2)))
+        return torch.sqrt(torch.sum(torch.pow(self.utterances,2)))
 
     """
     Computes the total cost agents get from moving
     """
     def compute_movement_cost(self, movements):
-        return -torch.sqrt(torch.sum(torch.pow(movements,2)))
+        return torch.sqrt(torch.sum(torch.pow(movements,2)))
 
 
 """
@@ -223,6 +214,17 @@ class AgentModule(nn.Module):
         # Store the total cost
         self.total_cost = Variable(torch.zeros(1))
 
+    def reset(self):
+        self.total_cost = Variable(torch.zeros(1))
+
+    def update_mem(self, game, mem_str, new_mem, agent, other_agent=None):
+        new_big_mem = Variable(Tensor(game.memories[mem_str].data))
+        if other_agent is not None:
+            new_big_mem[agent, other_agent] = new_mem
+        else:
+            new_big_mem[agent] = new_mem
+        game.memories[mem_str] = new_big_mem
+
     def forward(self, game):
         for t in range(self.time_horizon):
             movements = Variable(torch.zeros((game.num_entities, self.movement_dim_size)))
@@ -237,22 +239,25 @@ class AgentModule(nn.Module):
                 for other_agent in range(game.num_agents):
                     # process the utterance from this other agent
                     utterance_processed, new_mem, goal_predicted = self.utterance_processor(game.utterances[other_agent], game.memories["utterance"][agent, other_agent])
-                    new_big_mem = Variable(Tensor(game.memories["utterance"].data))
-                    new_big_mem[agent, other_agent] = new_mem
-                    game.memories["utterance"] = new_big_mem
+                    self.update_mem(game, "utterance", new_mem, agent, other_agent)
+                    #new_big_mem = Variable(Tensor(game.memories["utterance"].data))
+                    #new_big_mem[agent, other_agent] = new_mem
+                    #game.memories["utterance"] = new_big_mem
                     utterance_processes[other_agent, :] = utterance_processed
                     goal_predictions[agent, other_agent, :] = goal_predicted
 
                     # process the physical input from this other agent
                     physical_processed, new_mem = self.physical_processor(torch.cat((game.locations[other_agent],game.physical[other_agent])), game.memories["physical"][agent, other_agent])
-                    new_big_mem = Variable(Tensor(game.memories["physical"].data))
-                    new_big_mem[agent, other_agent] = new_mem
-                    game.memories["physical"] = new_big_mem
+                    self.update_mem(game, "physical", new_mem,agent, other_agent)
+                    #new_big_mem = Variable(Tensor(game.memories["physical"].data))
+                    #new_big_mem[agent, other_agent] = new_mem
+                    #game.memories["physical"] = new_big_mem
                     physical_processes[other_agent, :] = physical_processed
 
                 for landmark in range(game.num_agents, game.num_agents + game.num_landmarks):
                     # process the physical input from this landmark
-                    physical_processed, game.memories["physical"][agent, landmark] = self.physical_processor(torch.cat((game.locations[landmark],game.physical[landmark])), game.memories["physical"][agent, landmark])
+                    physical_processed, new_mem = self.physical_processor(torch.cat((game.locations[landmark],game.physical[landmark])), game.memories["physical"][agent, landmark])
+                    self.update_mem(game, "physical", new_mem, agent, landmark)
                     physical_processes[landmark, :] = physical_processed
 
                 # Pool the processing module outputs for an overall physical and utterance input
@@ -261,9 +266,10 @@ class AgentModule(nn.Module):
 
                 # Choose a move and utterance based on pooled inputs of this timestep
                 movement, utterance, new_mem = self.action_processor(utterance_feat, physical_feat, game.goals[agent], game.memories["action"][agent])
-                new_big_mem = Variable(Tensor(game.memories["action"].data))
-                new_big_mem[agent] = new_mem
-                game.memories["action"] = new_big_mem
+                self.update_mem(game, "action", new_mem, agent)
+                #new_big_mem = Variable(Tensor(game.memories["action"].data))
+                #new_big_mem[agent] = new_mem
+                #game.memories["action"] = new_big_mem
                 # save the actions
                 movements[agent,:] = movement
                 #pdb.set_trace()

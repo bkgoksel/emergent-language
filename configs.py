@@ -2,6 +2,8 @@ from typing import NamedTuple, Any, List
 import numpy as np
 import constants
 
+DEFAULT_NUM_EPOCHS = 5000
+
 DEFAULT_HIDDEN_SIZE = 256
 DEFAULT_DROPOUT = 0.1
 DEFAULT_FEAT_VEC_SIZE = 256
@@ -16,6 +18,13 @@ USE_STRICT_COLORS = True
 STRICT_COLORS = np.array([[constants.COLOR_SCALE, 0, 0], [0, constants.COLOR_SCALE, 0], [0, 0, constants.COLOR_SCALE]])
 USE_SHAPES = True
 NUM_SHAPES = 2
+
+TrainingConfig = NamedTuple('TrainingConfig', [
+    ('num_epochs', int)
+    ])
+
+default_training_config = TrainingConfig(
+        num_epochs=DEFAULT_NUM_EPOCHS)
 
 GameConfig = NamedTuple('GameConfig', [
     ('world_dim', Any),
