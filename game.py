@@ -1,10 +1,11 @@
 from typing import Tuple, NamedTuple, List, Optional, Set, Any
+import pdb
 import numpy as np # type: ignore
 import constants
 from model import GameModule
 from configs import GameConfig
 
-Goal = NamedTuple('Goal', [('agent_id', int), ('location', Any)])
+Goal = NamedTuple('Goal', [('location', Any), ('agent_id', int)])
 
 Landmark = NamedTuple('Landmark', [
     ('color', Any),
@@ -77,8 +78,9 @@ class Game():
 
     def initialize_random_state(self) -> None:
         num_landmarks = np.random.randint(1, self.config.max_landmarks)
-        num_agents = np.random.randint(1, self.config.max_agents)
-        self.state = GameState([],[], num_landmarks, num_agents)
+        #num_agents = np.random.randint(1, self.config.max_agents)
+        num_agents = self.config.max_agents
+        self.state = GameState([],[], num_landmarks=num_landmarks, num_agents=num_agents)
         self.init_random_landmarks()
         self.init_random_agents()
 
@@ -89,7 +91,8 @@ class Game():
             return np.random.randint(constants.COLOR_SCALE, size=3)
 
     def get_random_location(self) -> Any:
-        return np.multiply(np.random.rand(2), self.config.world_dim)
+        return np.array([1,1])
+        #return np.multiply(np.random.rand(2), self.config.world_dim)
 
     def init_random_landmarks(self) -> None:
         for i in range(self.state.num_landmarks):
@@ -105,7 +108,7 @@ class Game():
             c = self.get_random_color()
             l = self.get_random_location()
             s = np.random.randint(self.config.num_shapes) if self.config.use_shapes else None
-            g = Goal(goal_order[i], self.state.landmarks[np.random.randint(self.state.num_landmarks)].location)
+            g = Goal(self.state.landmarks[np.random.randint(self.state.num_landmarks)].location, goal_order[i])
             self.state.agents.append(Agent(c, l, s, g))
 
     def get_vectorized_state(self) -> GameModule:

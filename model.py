@@ -12,7 +12,7 @@ import pdb
 """
     A Processing module takes an input from a stream and the independent memory
     of that stream and runs a single timestep of a GRU cell, followed by
-    dropout and finally a linear ReLU layer on top of the GRU output.
+    dropout and finally a linear ELU layer on top of the GRU output.
     It returns the output of the fully connected layer as well as the update to
     the independent memory.
 """
@@ -21,9 +21,9 @@ class ProcessingModule(nn.Module):
         super(ProcessingModule, self).__init__()
         self.cell = nn.GRUCell(config.input_size, config.hidden_size)
         self.fully_connected = nn.Sequential(
-                nn.Dropout(config.dropout),
+                # nn.Dropout(config.dropout),
                 nn.Linear(config.hidden_size, config.hidden_size),
-                nn.ReLU())
+                nn.ELU())
 
     def forward(self, x, m):
         m = self.cell(x.unsqueeze(0), m.unsqueeze(0))
@@ -41,8 +41,8 @@ class GoalPredictingProcessingModule(nn.Module):
         self.processor = ProcessingModule(config.processor)
         self.goal_predictor = nn.Sequential(
                 nn.Linear(config.processor.hidden_size, config.hidden_size),
-                nn.Dropout(config.dropout),
-                nn.ReLU(),
+                #nn.Dropout(config.dropout),
+                nn.ELU(),
                 nn.Linear(config.hidden_size, config.goal_size))
 
     def forward(self, x, mem):
@@ -76,25 +76,33 @@ class ActionModule(nn.Module):
         self.processor = ProcessingModule(config.action_processor)
         self.movement_step_size = config.movement_step_size
         self.movement_chooser = nn.Sequential(
-                nn.Linear(config.action_processor.hidden_size, config.hidden_size),
-                nn.ReLU(),
+                #nn.Linear(config.action_processor.hidden_size, config.action_processor.hidden_size),
+                #nn.ELU(),
                 nn.Linear(config.action_processor.hidden_size, config.movement_dim_size),
-                nn.Softmax()
+                nn.Tanh()
                 )
+
         self.utterance_chooser = nn.Sequential(
                 nn.Linear(config.action_processor.hidden_size, config.hidden_size),
-                nn.ReLU(),
+                nn.ELU(),
                 nn.Linear(config.hidden_size, config.vocab_size),
                 GumbelSoftmax()
                 )
 
-    def forward(self, physical, utterance, goal, mem):
+    def forward(self, utterance, physical, goal, mem):
         goal_processed, _ = self.goal_processor(goal, mem)
+        #print("physical min: %f, max: %f, mean: %f" % (physical.min(), physical.max(), physical.mean()))
+        #print("goal min: %f, max: %f, mean: %f" % (goal.min(), goal.max(), goal.mean()))
+        #print("utterance min: %f, max: %f, mean: %f" % (utterance.min(), utterance.max(), utterance.mean()))
+        # x = torch.cat([physical.squeeze(0), utterance.squeeze(0), goal_processed], 1).squeeze(0)
         x = torch.cat([physical.squeeze(0), utterance.squeeze(0), goal_processed], 1).squeeze(0)
+        #print("X min: %f, max: %f, mean: %f" % (x.min(), x.max(), x.mean()))
         processed, mem = self.processor(x, mem)
+        #print("Processed min: %f, max: %f, mean: %f" % (processed.min(), processed.max(), processed.mean()))
         movement = self.movement_chooser(processed)
+        #print(movement)
         utterance = self.utterance_chooser(processed)
-        final_movement = torch.add(torch.mul(movement, 2*self.movement_step_size), -self.movement_step_size)
+        final_movement = (movement * 2 * self.movement_step_size) - self.movement_step_size
         return final_movement, utterance, mem
 
 """
@@ -133,8 +141,11 @@ class GameModule(nn.Module):
                 "physical": Variable(torch.zeros(self.num_agents, self.locations.shape[0], memory_size)),
                 "action": Variable(torch.zeros(self.num_agents, memory_size))}
 
-        agent_baselines = self.locations[:self.num_agents].unsqueeze(1)
-        self.observations = self.locations.unsqueeze(0) - agent_baselines
+        agent_baselines = self.locations[:self.num_agents]
+        self.observations = self.locations.unsqueeze(0) - agent_baselines.unsqueeze(1)
+        new_obs = self.goals[:,:2] - agent_baselines
+        goal_agents = self.goals[:,2].unsqueeze(1)
+        self.observed_goals = torch.cat((new_obs, goal_agents), dim=1)
 
     """
     Updates game state given all movements and utterances and returns accrued cost
@@ -145,10 +156,12 @@ class GameModule(nn.Module):
         - scalar: cost received in this episode of the game
     """
     def forward(self, movements, utterances, goal_predictions):
-        new_locations = self.locations + movements
-        self.locations = new_locations
-        agent_baselines = self.locations[:self.num_agents].unsqueeze(1)
-        self.observations = self.locations.unsqueeze(0)- agent_baselines
+        self.locations = self.locations + movements
+        agent_baselines = self.locations[:self.num_agents]
+        self.observations = self.locations.unsqueeze(0)- agent_baselines.unsqueeze(1)
+        new_obs = self.goals[:,:2] - agent_baselines
+        goal_agents = self.goals[:,2].unsqueeze(1)
+        self.observed_goals = torch.cat((new_obs, goal_agents), dim=1)
         self.utterances = utterances
         return self.compute_cost(movements, goal_predictions)
 
@@ -156,6 +169,7 @@ class GameModule(nn.Module):
         physical_cost = self.compute_physical_cost()
         goal_pred_cost = self.compute_goal_pred_cost(goal_predictions)
         utterance_cost = self.compute_utterance_cost()
+        #utterance_cost = 0
         movement_cost = self.compute_movement_cost(movements)
         return physical_cost + goal_pred_cost + utterance_cost + movement_cost
 
@@ -166,7 +180,7 @@ class GameModule(nn.Module):
     def compute_physical_cost(self):
         sorted_goals = self.goals[torch.sort(self.goals[:,2])[1]][:,:2]
         # [num_agents x 2] -> each agent's goal location
-        return torch.sum(
+        return 10 * torch.sum(
                 torch.sqrt(
                     torch.sum(
                         torch.pow(self.locations[:self.num_agents,:] - sorted_goals, 2))))
@@ -213,9 +227,13 @@ class AgentModule(nn.Module):
         self.action_processor = ActionModule(config.action_processor)
         # Store the total cost
         self.total_cost = Variable(torch.zeros(1))
+        self.all_movements = [] # type: ignore
+        self.all_utterances = [] # type: ignore
 
     def reset(self):
         self.total_cost = Variable(torch.zeros(1))
+        self.all_movements = []
+        self.all_utterances = [] # type: ignore
 
     def update_mem(self, game, mem_str, new_mem, agent, other_agent=None):
         new_big_mem = Variable(Tensor(game.memories[mem_str].data))
@@ -240,23 +258,17 @@ class AgentModule(nn.Module):
                     # process the utterance from this other agent
                     utterance_processed, new_mem, goal_predicted = self.utterance_processor(game.utterances[other_agent], game.memories["utterance"][agent, other_agent])
                     self.update_mem(game, "utterance", new_mem, agent, other_agent)
-                    #new_big_mem = Variable(Tensor(game.memories["utterance"].data))
-                    #new_big_mem[agent, other_agent] = new_mem
-                    #game.memories["utterance"] = new_big_mem
                     utterance_processes[other_agent, :] = utterance_processed
                     goal_predictions[agent, other_agent, :] = goal_predicted
 
                     # process the physical input from this other agent
-                    physical_processed, new_mem = self.physical_processor(torch.cat((game.locations[other_agent],game.physical[other_agent])), game.memories["physical"][agent, other_agent])
+                    physical_processed, new_mem = self.physical_processor(torch.cat((game.observations[agent,other_agent],game.physical[other_agent])), game.memories["physical"][agent, other_agent])
                     self.update_mem(game, "physical", new_mem,agent, other_agent)
-                    #new_big_mem = Variable(Tensor(game.memories["physical"].data))
-                    #new_big_mem[agent, other_agent] = new_mem
-                    #game.memories["physical"] = new_big_mem
                     physical_processes[other_agent, :] = physical_processed
 
                 for landmark in range(game.num_agents, game.num_agents + game.num_landmarks):
                     # process the physical input from this landmark
-                    physical_processed, new_mem = self.physical_processor(torch.cat((game.locations[landmark],game.physical[landmark])), game.memories["physical"][agent, landmark])
+                    physical_processed, new_mem = self.physical_processor(torch.cat((game.observations[agent,landmark],game.physical[landmark])), game.memories["physical"][agent, landmark])
                     self.update_mem(game, "physical", new_mem, agent, landmark)
                     physical_processes[landmark, :] = physical_processed
 
@@ -265,14 +277,13 @@ class AgentModule(nn.Module):
                 physical_feat = self.physical_pooling(physical_processes.unsqueeze(0))
 
                 # Choose a move and utterance based on pooled inputs of this timestep
-                movement, utterance, new_mem = self.action_processor(utterance_feat, physical_feat, game.goals[agent], game.memories["action"][agent])
+                movement, utterance, new_mem = self.action_processor(utterance_feat, physical_feat, game.observed_goals[agent], game.memories["action"][agent])
                 self.update_mem(game, "action", new_mem, agent)
-                #new_big_mem = Variable(Tensor(game.memories["action"].data))
-                #new_big_mem[agent] = new_mem
-                #game.memories["action"] = new_big_mem
                 # save the actions
                 movements[agent,:] = movement
-                #pdb.set_trace()
+
+                self.all_movements.append(movement)
+                self.all_utterances.append(utterance)
                 utterances[agent, :] = utterance
 
             # Compute the cost for this timestep given all agents' chosen actions

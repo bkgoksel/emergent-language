@@ -2,29 +2,32 @@ from typing import NamedTuple, Any, List
 import numpy as np
 import constants
 
-DEFAULT_NUM_EPOCHS = 5000
+DEFAULT_NUM_EPOCHS = 50000
+DEFAULT_LR = 1e-4
 
-DEFAULT_HIDDEN_SIZE = 256
+DEFAULT_HIDDEN_SIZE = 128
 DEFAULT_DROPOUT = 0.1
-DEFAULT_FEAT_VEC_SIZE = 256
-DEFAULT_TIME_HORIZON = 16
+DEFAULT_FEAT_VEC_SIZE = 128
+DEFAULT_TIME_HORIZON = 32
 
-VOCAB_SIZE = 32
+VOCAB_SIZE = 9
 
 DEFAULT_WORLD_DIM = 16
-MAX_AGENTS = 2
-MAX_LANDMARKS = 2
+MAX_AGENTS = 3
+MAX_LANDMARKS = 3
 USE_STRICT_COLORS = True
 STRICT_COLORS = np.array([[constants.COLOR_SCALE, 0, 0], [0, constants.COLOR_SCALE, 0], [0, 0, constants.COLOR_SCALE]])
 USE_SHAPES = True
 NUM_SHAPES = 2
 
 TrainingConfig = NamedTuple('TrainingConfig', [
-    ('num_epochs', int)
+    ('num_epochs', int),
+    ('learning_rate', float)
     ])
 
 default_training_config = TrainingConfig(
-        num_epochs=DEFAULT_NUM_EPOCHS)
+        num_epochs=DEFAULT_NUM_EPOCHS,
+        learning_rate=DEFAULT_LR)
 
 GameConfig = NamedTuple('GameConfig', [
     ('world_dim', Any),
