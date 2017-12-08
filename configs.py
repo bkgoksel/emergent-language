@@ -1,3 +1,4 @@
+import pdb
 from typing import NamedTuple, Any, List
 import numpy as np
 import constants
@@ -146,28 +147,28 @@ default_agent_config = AgentModuleConfig(
 
 def get_training_config(kwargs):
     return TrainingConfig(
-            num_epochs=kwargs['n-epochs'] if 'n-epochs' in kwargs else default_training_config.num_epochs,
-            learning_rate=kwargs['learning-rate'] if 'learning-rate' in kwargs else default_training_config.learning_rate)
+            num_epochs=kwargs['n_epochs'] or default_training_config.num_epochs,
+            learning_rate=kwargs['learning_rate'] or default_training_config.learning_rate)
 
 def get_game_config(kwargs):
     return GameConfig(
-            world_dim=kwargs['world-dim'] if 'world-dim' in kwargs else default_game_config.world_dim,
-            max_agents=kwargs['n-agents'] if 'n-agents' in kwargs else default_game_config.max_agents,
-            max_landmarks=kwargs['n-landmarks'] if 'n-landmarks' in kwargs else default_game_config.max_landmarks,
-            use_strict_colors=kwargs['use-strict-colors'] if 'use-strict-colors' in kwargs else default_game_config.use_strict_colors,
+            world_dim=kwargs['world_dim'] or default_game_config.world_dim,
+            max_agents=kwargs['n_agents'] or default_game_config.max_agents,
+            max_landmarks=kwargs['n_landmarks'] or default_game_config.max_landmarks,
+            use_strict_colors=not kwargs['use_random_colors'],
             strict_colors=default_game_config.strict_colors,
             use_shapes=default_game_config.use_shapes,
             num_shapes=default_game_config.num_shapes,
-            use_utterances= (not kwargs['no-utterances']) if 'no-utterances' in kwargs else default_game_config.use_utterances,
-            vocab_size=kwargs['vocab-size'] if 'vocab-size' in kwargs else default_game_config.vocab_size,
+            use_utterances=not kwargs['no_utterances'],
+            vocab_size=kwargs['vocab_size'] or default_game_config.vocab_size,
             memory_size=default_game_config.memory_size
             )
 
 def get_agent_config(kwargs):
-    vocab_size = kwargs['vocab-size'] if 'vocab-size' in kwargs else DEFAULT_VOCAB_SIZE
-    use_utterances = (not kwargs['no-utterances']) if 'no-utterances' in kwargs else USE_UTTERANCES
-    penalize_words = kwargs['penalize-words'] if 'penalize-words' in kwargs else PENALIZE_WORDS
-    oov_prob = kwargs['oov-prob'] if 'oov-prob' in kwargs else DEFAULT_OOV_PROB
+    vocab_size = kwargs['vocab_size'] or DEFAULT_VOCAB_SIZE
+    use_utterances = (not kwargs['no_utterances'])
+    penalize_words = kwargs['penalize_words']
+    oov_prob = kwargs['oov_prob'] or DEFAULT_OOV_PROB
     if use_utterances:
         feat_vec_size = DEFAULT_FEAT_VEC_SIZE*3
     else:
@@ -191,7 +192,7 @@ def get_agent_config(kwargs):
             oov_prob=oov_prob)
 
     return AgentModuleConfig(
-            time_horizon=kwargs['n-timesteps'] if 'n-timesteps' in kwargs else default_agent_config.time_horizon,
+            time_horizon=kwargs['n_timesteps'] or default_agent_config.time_horizon,
             feat_vec_size=default_agent_config.feat_vec_size,
             movement_dim_size=default_agent_config.movement_dim_size,
             utterance_processor=utterance_processor,
