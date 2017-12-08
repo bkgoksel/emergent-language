@@ -141,11 +141,11 @@ class GameModule(nn.Module):
             self.utterances = Variable(torch.zeros(self.num_agents, vocab_size))
             self.memories = {
                     "utterance": Variable(torch.zeros(self.num_agents, self.num_agents, memory_size)),
-                    "physical": Variable(torch.zeros(self.num_agents, self.locations.shape[0], memory_size)),
+                    "physical": Variable(torch.zeros(self.num_agents, self.locations.size()[0], memory_size)),
                     "action": Variable(torch.zeros(self.num_agents, memory_size))}
         else:
             self.memories = {
-                    "physical": Variable(torch.zeros(self.num_agents, self.locations.shape[0], memory_size)),
+                    "physical": Variable(torch.zeros(self.num_agents, self.locations.size()[0], memory_size)),
                     "action": Variable(torch.zeros(self.num_agents, memory_size))}
 
         agent_baselines = self.locations[:self.num_agents]

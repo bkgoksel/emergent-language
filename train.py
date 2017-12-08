@@ -30,7 +30,7 @@ def main():
         #pdb.set_trace()
         optimizer.step()
         #running_costs.append(total_loss)
-        print("[Ep: %d][Loss: %f]" % (epoch, total_loss))
+        print("[Ep: %d][Loss: %f]" % (epoch, total_loss.data[0]))
 
 if __name__ == "__main__":
     main()
