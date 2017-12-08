@@ -78,9 +78,8 @@ class Game():
             self.initialize_random_state()
 
     def initialize_random_state(self) -> None:
-        num_landmarks = np.random.randint(1, self.config.max_landmarks)
-        #num_agents = np.random.randint(1, self.config.max_agents)
-        num_agents = self.config.max_agents
+        num_landmarks = np.random.randint(1, self.config.max_landmarks + 1)
+        num_agents = np.random.randint(1, self.config.max_agents + 1)
         self.state = GameState([],[], num_landmarks=num_landmarks, num_agents=num_agents)
         self.init_random_landmarks()
         self.init_random_agents()
@@ -92,8 +91,7 @@ class Game():
             return np.random.randint(constants.COLOR_SCALE, size=3)
 
     def get_random_location(self) -> Any:
-        return np.array([1,1])
-        #return np.multiply(np.random.rand(2), self.config.world_dim)
+        return np.multiply(np.random.rand(2), self.config.world_dim)
 
     def init_random_landmarks(self) -> None:
         for i in range(self.state.num_landmarks):
