@@ -42,6 +42,7 @@ class Game():
                 [],
                 True,
                 [],
+                True,
                 vec_game.utterances.shape[1],
                 vec_game.memories.action.shape[1])
         agents = [] # type: List[Agent]
@@ -130,4 +131,4 @@ class Game():
             landmark_physical[i,:3] = landmark.color
             landmark_physical[i, 3] = landmark.shape
 
-        return GameModule(agent_locations, agent_physical, landmark_locations, landmark_physical, goals, self.config.vocab_size, self.config.memory_size)
+        return GameModule(agent_locations, agent_physical, landmark_locations, landmark_physical, goals, self.config.vocab_size, self.config.memory_size, self.config.use_utterances)

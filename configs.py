@@ -10,6 +10,7 @@ DEFAULT_DROPOUT = 0.1
 DEFAULT_FEAT_VEC_SIZE = 128
 DEFAULT_TIME_HORIZON = 32
 
+USE_UTTERANCES = False
 VOCAB_SIZE = 9
 
 DEFAULT_WORLD_DIM = 16
@@ -37,6 +38,7 @@ GameConfig = NamedTuple('GameConfig', [
     ('strict_colors', Any),
     ('use_shapes', bool),
     ('num_shapes', int),
+    ('use_utterances', bool),
     ('vocab_size', int),
     ('memory_size', int)
 ])
@@ -49,6 +51,7 @@ default_game_config = GameConfig(
         STRICT_COLORS,
         USE_SHAPES,
         NUM_SHAPES,
+        USE_UTTERANCES,
         VOCAB_SIZE,
         DEFAULT_HIDDEN_SIZE)
 
@@ -72,7 +75,8 @@ ActionModuleConfig = NamedTuple("ActionModuleConfig", [
     ('dropout', float),
     ('movement_dim_size', int),
     ('movement_step_size', int),
-    ('vocab_size', int)
+    ('vocab_size', int),
+    ('use_utterances', bool)
     ])
 
 AgentModuleConfig = NamedTuple("AgentModuleConfig", [
@@ -84,6 +88,7 @@ AgentModuleConfig = NamedTuple("AgentModuleConfig", [
     ('utterance_processor', GoalPredictingProcessingModuleConfig),
     ('physical_processor', ProcessingModuleConfig),
     ('action_processor', ActionModuleConfig),
+    ('use_utterances', bool),
     ])
 
 def get_processor_config_with_input_size(input_size):
@@ -98,14 +103,20 @@ default_goal_predicting_module_config = GoalPredictingProcessingModuleConfig(
     dropout=DEFAULT_DROPOUT,
     goal_size=constants.GOAL_SIZE)
 
+if USE_UTTERANCES:
+    feat_size = DEFAULT_FEAT_VEC_SIZE*3
+else:
+    feat_size = DEFAULT_FEAT_VEC_SIZE*2
+
 default_action_module_config = ActionModuleConfig(
         goal_processor=get_processor_config_with_input_size(constants.GOAL_SIZE),
-        action_processor=get_processor_config_with_input_size(DEFAULT_FEAT_VEC_SIZE*3),
+        action_processor=get_processor_config_with_input_size(feat_size),
         hidden_size=DEFAULT_HIDDEN_SIZE,
         dropout=DEFAULT_DROPOUT,
         movement_dim_size=constants.MOVEMENT_DIM_SIZE,
         movement_step_size=constants.MOVEMENT_STEP_SIZE,
-        vocab_size=VOCAB_SIZE)
+        vocab_size=VOCAB_SIZE,
+        use_utterances=USE_UTTERANCES)
 
 default_agent_module_config = AgentModuleConfig(
         time_horizon=DEFAULT_TIME_HORIZON,
@@ -115,5 +126,6 @@ default_agent_module_config = AgentModuleConfig(
         physical_processor=get_processor_config_with_input_size(constants.MOVEMENT_DIM_SIZE + constants.PHYSICAL_EMBED_SIZE),
         action_processor=default_action_module_config,
         goal_size=constants.GOAL_SIZE,
-        vocab_size=VOCAB_SIZE)
+        vocab_size=VOCAB_SIZE,
+        use_utterances=USE_UTTERANCES)
 
