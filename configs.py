@@ -11,7 +11,9 @@ DEFAULT_FEAT_VEC_SIZE = 128
 DEFAULT_TIME_HORIZON = 32
 
 USE_UTTERANCES = True
+PENALIZE_WORDS = False
 DEFAULT_VOCAB_SIZE = 6
+DEFAULT_OOV_PROB = 5
 
 DEFAULT_WORLD_DIM = 16
 MAX_AGENTS = 3
@@ -45,6 +47,11 @@ ProcessingModuleConfig = NamedTuple('ProcessingModuleConfig', [
     ('dropout', float)
     ])
 
+WordCountingModuleConfig = NamedTuple('WordCountingModuleConfig', [
+    ('vocab_size', int),
+    ('oov_prob', float)
+    ])
+
 GoalPredictingProcessingModuleConfig = NamedTuple("GoalPredictingProcessingModuleConfig", [
     ('processor', ProcessingModuleConfig),
     ('hidden_size', int),
@@ -72,12 +79,18 @@ AgentModuleConfig = NamedTuple("AgentModuleConfig", [
     ('utterance_processor', GoalPredictingProcessingModuleConfig),
     ('physical_processor', ProcessingModuleConfig),
     ('action_processor', ActionModuleConfig),
+    ('word_counter', WordCountingModuleConfig),
     ('use_utterances', bool),
+    ('penalize_words', bool)
     ])
 
 default_training_config = TrainingConfig(
         num_epochs=DEFAULT_NUM_EPOCHS,
         learning_rate=DEFAULT_LR)
+
+default_word_counter_config = WordCountingModuleConfig(
+        vocab_size=DEFAULT_VOCAB_SIZE,
+        oov_prob=DEFAULT_OOV_PROB)
 
 default_game_config = GameConfig(
         DEFAULT_WORLD_DIM,
@@ -125,9 +138,11 @@ default_agent_config = AgentModuleConfig(
         utterance_processor=default_goal_predicting_module_config,
         physical_processor=get_processor_config_with_input_size(constants.MOVEMENT_DIM_SIZE + constants.PHYSICAL_EMBED_SIZE),
         action_processor=default_action_module_config,
+        word_counter=default_word_counter_config,
         goal_size=constants.GOAL_SIZE,
         vocab_size=DEFAULT_VOCAB_SIZE,
-        use_utterances=USE_UTTERANCES)
+        use_utterances=USE_UTTERANCES,
+        penalize_words=PENALIZE_WORDS)
 
 def get_training_config(kwargs):
     return TrainingConfig(
@@ -151,6 +166,8 @@ def get_game_config(kwargs):
 def get_agent_config(kwargs):
     vocab_size = kwargs['vocab-size'] if 'vocab-size' in kwargs else DEFAULT_VOCAB_SIZE
     use_utterances = (not kwargs['no-utterances']) if 'no-utterances' in kwargs else USE_UTTERANCES
+    penalize_words = kwargs['penalize-words'] if 'penalize-words' in kwargs else PENALIZE_WORDS
+    oov_prob = kwargs['oov-prob'] if 'oov-prob' in kwargs else DEFAULT_OOV_PROB
     if use_utterances:
         feat_vec_size = DEFAULT_FEAT_VEC_SIZE*3
     else:
@@ -169,6 +186,9 @@ def get_agent_config(kwargs):
             movement_step_size=constants.MOVEMENT_STEP_SIZE,
             vocab_size=vocab_size,
             use_utterances=use_utterances)
+    word_counter = WordCountingModuleConfig(
+            vocab_size=vocab_size,
+            oov_prob=oov_prob)
 
     return AgentModuleConfig(
             time_horizon=kwargs['n-timesteps'] if 'n-timesteps' in kwargs else default_agent_config.time_horizon,
@@ -177,8 +197,10 @@ def get_agent_config(kwargs):
             utterance_processor=utterance_processor,
             physical_processor=default_agent_config.physical_processor,
             action_processor=action_processor,
+            word_counter=word_counter,
             goal_size=default_agent_config.goal_size,
             vocab_size=vocab_size,
-            use_utterances=use_utterances
+            use_utterances=use_utterances,
+            penalize_words=penalize_words
             )
 

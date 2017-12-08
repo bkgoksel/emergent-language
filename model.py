@@ -5,7 +5,7 @@ from typing import NamedTuple, Any
 from torch import Tensor
 from torch.autograd import Variable
 import constants
-from configs import ProcessingModuleConfig, GoalPredictingProcessingModuleConfig, ActionModuleConfig, AgentModuleConfig
+from configs import ProcessingModuleConfig, GoalPredictingProcessingModuleConfig, ActionModuleConfig, AgentModuleConfig, WordCountingModuleConfig
 import pdb
 
 
@@ -137,16 +137,13 @@ class GameModule(nn.Module):
         self.physical = Variable(torch.from_numpy(np.concatenate((agent_physical, landmark_physical))).float())
 
         self.goals = Variable(torch.from_numpy(goals).float())
+        self.memories = {
+            "physical": Variable(torch.zeros(self.num_agents, self.locations.size()[0], memory_size)),
+            "action": Variable(torch.zeros(self.num_agents, memory_size))}
+
         if self.using_utterances:
             self.utterances = Variable(torch.zeros(self.num_agents, vocab_size))
-            self.memories = {
-                    "utterance": Variable(torch.zeros(self.num_agents, self.num_agents, memory_size)),
-                    "physical": Variable(torch.zeros(self.num_agents, self.locations.size()[0], memory_size)),
-                    "action": Variable(torch.zeros(self.num_agents, memory_size))}
-        else:
-            self.memories = {
-                    "physical": Variable(torch.zeros(self.num_agents, self.locations.size()[0], memory_size)),
-                    "action": Variable(torch.zeros(self.num_agents, memory_size))}
+            self.memories["utterance"] = Variable(torch.zeros(self.num_agents, self.num_agents, memory_size ))
 
         agent_baselines = self.locations[:self.num_agents]
         self.observations = self.locations.unsqueeze(0) - agent_baselines.unsqueeze(1)
@@ -191,7 +188,6 @@ class GameModule(nn.Module):
     """
     def compute_physical_cost(self):
         sorted_goals = self.goals[torch.sort(self.goals[:,2])[1]][:,:2]
-        # [num_agents x 2] -> each agent's goal location
         return 10 * torch.sum(
                 torch.sqrt(
                     torch.sum(
@@ -215,6 +211,17 @@ class GameModule(nn.Module):
     def compute_movement_cost(self, movements):
         return torch.sqrt(torch.sum(torch.pow(movements,2)))
 
+class WordCountingModule(nn.Module):
+    def __init__(self, config: WordCountingModuleConfig) -> None:
+        super(WordCountingModule, self).__init__()
+        self.oov_prob = config.oov_prob
+        self.word_counts = Variable(Tensor(config.vocab_size))
+
+    def forward(self, utterances):
+        cost = -utterances/(self.oov_prob + self.word_counts.sum() - 1)
+        self.word_counts = self.word_counts() + utterances
+        return cost
+
 
 """
     The AgentModule is the general module that's responsible for the execution of
@@ -225,18 +232,16 @@ class GameModule(nn.Module):
 class AgentModule(nn.Module):
     def __init__(self, config: AgentModuleConfig) -> None:
         super(AgentModule, self).__init__()
-        # Save config vals that will be needed
         self.using_utterances = config.use_utterances
+        self.penalizing_words = config.penalize_words
         self.time_horizon = config.time_horizon
         self.movement_dim_size = config.movement_dim_size
         self.vocab_size = config.vocab_size
         self.goal_size = config.goal_size
         self.processing_hidden_size = config.physical_processor.hidden_size
-        # Set-up the processing modules
         self.physical_processor = ProcessingModule(config.physical_processor)
         self.physical_pooling = nn.AdaptiveAvgPool2d((1,config.feat_vec_size))
         self.action_processor = ActionModule(config.action_processor)
-        # Store the total cost
         self.total_cost = Variable(torch.zeros(1))
         self.all_movements = [] # type: ignore
 
@@ -244,6 +249,8 @@ class AgentModule(nn.Module):
             self.utterance_processor = GoalPredictingProcessingModule(config.utterance_processor)
             self.utterance_pooling = nn.AdaptiveAvgPool2d((1,config.feat_vec_size))
             self.all_utterances = [] # type: ignore
+            if self.penalizing_words:
+                self.word_counter = WordCountingModule(config.word_counter)
 
     def reset(self):
         self.total_cost = Variable(torch.zeros(1))
@@ -267,31 +274,26 @@ class AgentModule(nn.Module):
             goal_predictions = Variable(Tensor(game.num_agents, game.num_agents, self.goal_size))
             for agent in range(game.num_agents):
 
-                # Prepare the tensors to gather all processing module outputs for this agent
                 if self.using_utterances:
                     utterance_processes = Variable(Tensor(game.num_agents, self.processing_hidden_size))
                 physical_processes = Variable(Tensor(game.num_entities, self.processing_hidden_size))
 
                 for other_agent in range(game.num_agents):
-                    # process the utterance from this other agent
                     if self.using_utterances:
                         utterance_processed, new_mem, goal_predicted = self.utterance_processor(game.utterances[other_agent], game.memories["utterance"][agent, other_agent])
                         self.update_mem(game, "utterance", new_mem, agent, other_agent)
                         utterance_processes[other_agent, :] = utterance_processed
                         goal_predictions[agent, other_agent, :] = goal_predicted
 
-                    # process the physical input from this other agent
                     physical_processed, new_mem = self.physical_processor(torch.cat((game.observations[agent,other_agent],game.physical[other_agent])), game.memories["physical"][agent, other_agent])
                     self.update_mem(game, "physical", new_mem,agent, other_agent)
                     physical_processes[other_agent, :] = physical_processed
 
                 for landmark in range(game.num_agents, game.num_agents + game.num_landmarks):
-                    # process the physical input from this landmark
                     physical_processed, new_mem = self.physical_processor(torch.cat((game.observations[agent,landmark],game.physical[landmark])), game.memories["physical"][agent, landmark])
                     self.update_mem(game, "physical", new_mem, agent, landmark)
                     physical_processes[landmark, :] = physical_processed
 
-                # Pool the processing module outputs for an overall physical and utterance input
                 physical_feat = self.physical_pooling(physical_processes.unsqueeze(0))
                 if self.using_utterances:
                     utterance_feat = self.utterance_pooling(utterance_processes.unsqueeze(0))
@@ -299,9 +301,7 @@ class AgentModule(nn.Module):
                 else:
                     movement, new_mem = self.action_processor(physical_feat, game.observed_goals[agent], game.memories["action"][agent])
 
-                # Choose a move and utterance based on pooled inputs of this timestep
                 self.update_mem(game, "action", new_mem, agent)
-                # save the actions
                 movements[agent,:] = movement
 
                 self.all_movements.append(movement)
@@ -309,9 +309,10 @@ class AgentModule(nn.Module):
                     self.all_utterances.append(utterance)
                     utterances[agent, :] = utterance
 
-            # Compute the cost for this timestep given all agents' chosen actions
             if self.using_utterances:
                 cost = game(movements, goal_predictions, utterances)
+                if self.penalizing_words:
+                    cost = cost + self.word_counter(utterances)
             else:
                 cost = game(movements, goal_predictions)
             self.total_cost += cost
