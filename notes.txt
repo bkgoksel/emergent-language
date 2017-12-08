@@ -1,102 +1,33 @@
-Things to learn:
-----------------
+TODO:
+--------
+[ ] Try with word penalization and large vocabulary size
+[ ] Goal predictions(relative to yourself and agent index)
+[ ] Batching
+[ ] Add a test mode where utterances are argmaxed instead of Gumbel-softmaxed
+[ ] Testing after some initial training
+    [ ] Test in simple case, agent goes to its goal
+    [ ] Test in 2-agent case, something is uttered and agents go towards uttered goals
+    [ ] Test in 2-agent, no-utteraces case, see what the agents do
+[ ] Add a way to "replay" an episode easily
 
-- Relative direction words?
-  - Place goals to left/right/up of the landmark with no other referents
+LEARNING END:
+-------------
+[ ] Try relative goals (left of landmark, above landmark), see if relative direction words evolve
+[ ] Give different award coefficients to goals, have a single agent have multiple goals, see if award values can be communicated
+
+DISTANT FUTURE:
+--------------
+[ ] Visualization of a game
+[ ] Web interface to give an initial game state and see how the agents act and what they utter
+
+
+Unstructured thoughts:
+----------------
 - Color words
   - Simulate different visual systems, see how color words evolve
 - Verbs
   - GO
   - TAKE (i.e. make landmarks movable, have a goal be the moving of a landmark to another landmark)
 - Make sequential goals (i.e. go to blue, then green) and also multi-landmark but not ordered goals (go to green and blue in any order). See if a way to discriminate evolves
-- Attach different awards to different conflicting goals, see if agents can learn to communicate the reward amount
-- Different reference frames (self centered, different magnitude/distance unit?)
 - Narration (Agent A observes a certain environment, tries to describe it to Agent B, Agent B predicts the environment history)
 
-Testing path:
-------------
-
-2 Agents, each knows where other should go
-  - Global state
-    - n agents (coordinates)
-    - m landmarks (coordinates, color, shape)
-    - n goals (coordinates, one for each agent)
-  - Each agent's observation at timestep t:
-    - for each other agent:
-      - its relative coordinate
-      - its color
-    - for each landmark:
-      - its relative coordinate
-      - its color
-      - its shape
-    - its goal:
-      - agent i
-      - relative coordinate x,y
-    - all communication happened at (t-1) (c i t-1 for all i in n)
-    - its memory bank state at (t-1) (m t-1)
-  - Action space:
-    - Speak (K-dim vector?)
-    - Move (discrete, 4 directions)
-  - Reward at t:
-    - For each agent:
-      - negative reward for time
-      - negative reward if spoke
-        - higher reward for less common words
-      - negative reward for move
-      - high positive reward if at its goal location
-      - for each other agent:
-        - high positive reward if correctly guessed that agent's goal
-
-
-Agents:
---------
-  Agent inputs:
-    - o(i, t-1) Observations of agent i at timestep t-1:
-      - iXj: relative position of j to i for each other agent and landmark j (N + M)
-      - C: utterance matrix of all agents from timestep t-1 (N by K)
-      - mi: memory bank of agent i at timestep t-1
-      - gi: goal known by agent i at timestep t-1
-
-  Network architecture:
-    - FCc: N Fully connected networks sharing weights take c_i ... N as input (all the utterances) and m_i as input
-    - FCc is softmax pooled into PhiC
-    - FCx: N+M Fully connected networks sharing weights take x_i ... N+M as input (all entities)
-    - FCx is softmax pooled into PhiX
-    - FCa: takes PhiC, PhiX and m as input and outputs PsiU and PsiC as distributions over coming actions
-
-  Network outputs:
-    - Distribution over physical actions (u)
-    - Distribution over utterances (c)
-    - Memory update vector (m)
-
-
-
-PYTORCH STATE:
---------------
-
-Right now I have the individual modules for utterance/physical location processing, and also set up some pooling layers.
-
-Need to figure out where to instatiate games and how to store the game state during the forward phase of the agent module.
-
-Need to make sure the final reward gradient can be followed all the way back to the beginning of the game
-
-Also unclear how the batching will work as each game has a random number of agents/landmarks. Might need to look into padded/masked layers a bit. It would be nice to have the entire game state stored as a multi-dimensioned matrix,
-
-Idea:
-
-The game state is encapsulated in a single, multi-dimensional tensor
-The agent module is given a batch of game states like this
-It batch operates on all of them until the end of the time horizon
-The reward and transition dynamics are built into the agent module
-The agent module can thus follow the gradient of the reward all the way back through all the games.
-
-Training in this case involves repeatedly generating sets of 1024 initial game states and passing them to the agent module
-
-Things to figure out:
-- Storing game state in single multi-dimensional tensor (storing in module instead)
-- Having parts of agent module work with variable number of modules for each game in the batch (different number of comm. streams in each game, how to batch the comm. stream module?)
-- Building the reward and transition dynamics in the Agent module in a differentiable way (building in game module instead)
-- Ensuring gradients of final reward can be traced end-to-end
-
-- How to predict goals when all coordinate systems are relative?
-  - Predict the agent color and shape for the goal, predict location relative to yourself
