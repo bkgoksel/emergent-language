@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from typing import NamedTuple, Any
+from typing import List, NamedTuple, Any
 from torch import Tensor
 from torch.autograd import Variable
 import constants
@@ -55,11 +55,12 @@ class GumbelSoftmax(nn.Module):
     def __init__(self) -> None:
         super(GumbelSoftmax, self).__init__()
         self.softmax = nn.Softmax(dim=1)
+        self.temp = 1
 
     def forward(self, x):
         U = Variable(torch.rand(x.size()))
         y = x -torch.log(-torch.log(U + 1e-20) + 1e-20)
-        return self.softmax(y)
+        return self.softmax(y/self.temp)
 
 """
     An ActionModule takes in the physical observation feature vector, the
@@ -87,10 +88,10 @@ class ActionModule(nn.Module):
             self.utterance_chooser = nn.Sequential(
                     nn.Linear(config.action_processor.hidden_size, config.hidden_size),
                     nn.ELU(),
-                    nn.Linear(config.hidden_size, config.vocab_size),
-                    GumbelSoftmax())
+                    nn.Linear(config.hidden_size, config.vocab_size))
+            self.gumbel_softmax = GumbelSoftmax()
 
-    def forward(self, physical, goal, mem, utterance=None):
+    def forward(self, physical, goal, mem, training, utterance=None):
         goal_processed, _ = self.goal_processor(goal, mem)
         if self.using_utterances:
             x = torch.cat([physical.squeeze(0), utterance.squeeze(0), goal_processed], 1).squeeze(0)
@@ -99,7 +100,14 @@ class ActionModule(nn.Module):
         processed, mem = self.processor(x, mem)
         movement = self.movement_chooser(processed)
         if self.using_utterances:
-            utterance = self.utterance_chooser(processed)
+            utter = self.utterance_chooser(processed)
+            if training:
+                utterance = self.gumbel_softmax(utter)
+            else:
+                utterance = torch.zeros(utter.size())
+                max_utter = utter.max(1)[1]
+                max_utter = max_utter.data[0]
+                utterance[0, max_utter] = 1
         final_movement = (movement * 2 * self.movement_step_size) - self.movement_step_size
         if self.using_utterances:
             return final_movement, utterance, mem
@@ -126,6 +134,29 @@ class ActionModule(nn.Module):
 """
 
 class GameModule(nn.Module):
+
+    @classmethod
+    def from_structured_game(cls, game):
+        agent_locations = np.empty([game.state.num_agents, 2])
+        agent_physical = np.empty([game.state.num_agents, constants.PHYSICAL_EMBED_SIZE])
+        landmark_locations= np.empty([game.state.num_landmarks, 2])
+        landmark_physical = np.empty([game.state.num_landmarks, constants.PHYSICAL_EMBED_SIZE])
+        goals = np.empty([game.state.num_agents, constants.GOAL_SIZE])
+
+        for i, agent in enumerate(game.state.agents):
+            agent_locations[i] = agent.location
+            agent_physical[i,:3] = agent.color
+            agent_physical[i, 3] = agent.shape
+            goals[i,:2] = agent.goal.location
+            goals[i, 2] = agent.goal.agent_id
+
+        for i, landmark in enumerate(game.state.landmarks):
+            landmark_locations[i] = landmark.location
+            landmark_physical[i,:3] = landmark.color
+            landmark_physical[i, 3] = landmark.shape
+
+        return cls(agent_locations, agent_physical, landmark_locations, landmark_physical, goals, game.config.vocab_size, game.config.memory_size, game.config.use_utterances)
+
     def __init__(self, agent_locations, agent_physical, landmark_locations, landmark_physical, goals, vocab_size, memory_size, using_utterances) -> None:
         super(GameModule, self).__init__()
         self.using_utterances = using_utterances
@@ -232,6 +263,7 @@ class WordCountingModule(nn.Module):
 class AgentModule(nn.Module):
     def __init__(self, config: AgentModuleConfig) -> None:
         super(AgentModule, self).__init__()
+        self.training = True
         self.using_utterances = config.use_utterances
         self.penalizing_words = config.penalize_words
         self.time_horizon = config.time_horizon
@@ -258,6 +290,10 @@ class AgentModule(nn.Module):
         if self.using_utterances:
             self.all_utterances = [] # type: ignore
 
+    def train(self, mode=True):
+        super(AgentModule, self).train(mode)
+        self.training = mode
+
     def update_mem(self, game, mem_str, new_mem, agent, other_agent=None):
         new_big_mem = Variable(Tensor(game.memories[mem_str].data))
         if other_agent is not None:
@@ -267,15 +303,20 @@ class AgentModule(nn.Module):
         game.memories[mem_str] = new_big_mem
 
     def forward(self, game):
+        if not self.training:
+            timesteps = [] # type: List[Any]
         for t in range(self.time_horizon):
             movements = Variable(torch.zeros((game.num_entities, self.movement_dim_size)))
+
             if self.using_utterances:
                 utterances = Variable(Tensor(game.num_agents, self.vocab_size))
-            goal_predictions = Variable(Tensor(game.num_agents, game.num_agents, self.goal_size))
-            for agent in range(game.num_agents):
 
+            goal_predictions = Variable(Tensor(game.num_agents, game.num_agents, self.goal_size))
+
+            for agent in range(game.num_agents):
                 if self.using_utterances:
                     utterance_processes = Variable(Tensor(game.num_agents, self.processing_hidden_size))
+
                 physical_processes = Variable(Tensor(game.num_entities, self.processing_hidden_size))
 
                 for other_agent in range(game.num_agents):
@@ -297,9 +338,9 @@ class AgentModule(nn.Module):
                 physical_feat = self.physical_pooling(physical_processes.unsqueeze(0))
                 if self.using_utterances:
                     utterance_feat = self.utterance_pooling(utterance_processes.unsqueeze(0))
-                    movement, utterance, new_mem = self.action_processor(physical_feat, game.observed_goals[agent], game.memories["action"][agent], utterance_feat)
+                    movement, utterance, new_mem = self.action_processor(physical_feat, game.observed_goals[agent], game.memories["action"][agent], self.training, utterance_feat)
                 else:
-                    movement, new_mem = self.action_processor(physical_feat, game.observed_goals[agent], game.memories["action"][agent])
+                    movement, new_mem = self.action_processor(physical_feat, game.observed_goals[agent], game.memories["action"][agent], self.training)
 
                 self.update_mem(game, "action", new_mem, agent)
                 movements[agent,:] = movement
@@ -315,6 +356,16 @@ class AgentModule(nn.Module):
                     cost = cost + self.word_counter(utterances)
             else:
                 cost = game(movements, goal_predictions)
-            self.total_cost += cost
-        return self.total_cost
+            self.total_cost = self.total_cost + cost
+            if not self.training:
+                timesteps.append({
+                    'locations': game.locations,
+                    'movements': movements,
+                    'loss': cost})
+                if self.using_utterances:
+                    timesteps[-1]['utterances'] = utterances
+        if self.training:
+            return self.total_cost
+        else:
+            return self.total_cost, timesteps
 

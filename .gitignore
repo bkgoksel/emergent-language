@@ -3,4 +3,5 @@
 __pycache__/
 mypy.ini
 *.sw*
-notes.txt
+*.pt
+*.out

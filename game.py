@@ -2,7 +2,6 @@ from typing import Tuple, NamedTuple, List, Optional, Set, Any
 import pdb
 import numpy as np # type: ignore
 import constants
-from model import GameModule
 from configs import GameConfig
 
 Goal = NamedTuple('Goal', [('location', Any), ('agent_id', int)])
@@ -27,10 +26,7 @@ GameState = NamedTuple('GameState', [
     ('num_landmarks', int)
 ])
 
-
-
 class Game():
-
     @classmethod
     def from_vectorized_game(cls, vec_game):
         config = GameConfig(
@@ -44,7 +40,8 @@ class Game():
                 [],
                 True,
                 vec_game.utterances.shape[1],
-                vec_game.memories.action.shape[1])
+                vec_game.memories.action.shape[1],
+                False)
         agents = [] # type: List[Agent]
         for i in range(vec_game.num_agents):
             agents.append(
@@ -78,8 +75,8 @@ class Game():
             self.initialize_random_state()
 
     def initialize_random_state(self) -> None:
-        num_landmarks = np.random.randint(1, self.config.max_landmarks + 1)
-        num_agents = np.random.randint(1, self.config.max_agents + 1)
+        num_landmarks = np.random.randint(self.config.min_landmarks, self.config.max_landmarks + 1)
+        num_agents = np.random.randint(self.config.min_agents, self.config.max_agents + 1)
         self.state = GameState([],[], num_landmarks=num_landmarks, num_agents=num_agents)
         self.init_random_landmarks()
         self.init_random_agents()
@@ -102,7 +99,8 @@ class Game():
 
     def init_random_agents(self) -> None:
         goal_order = list(range(self.state.num_agents)) # type: List[int]
-        np.random.shuffle(goal_order)
+        if not self.config.self_goals:
+            np.random.shuffle(goal_order)
         for i in range(self.state.num_agents):
             c = self.get_random_color()
             l = self.get_random_location()
@@ -110,23 +108,3 @@ class Game():
             g = Goal(self.state.landmarks[np.random.randint(self.state.num_landmarks)].location, goal_order[i])
             self.state.agents.append(Agent(c, l, s, g))
 
-    def get_vectorized_state(self) -> GameModule:
-        agent_locations = np.empty([self.state.num_agents, 2])
-        agent_physical = np.empty([self.state.num_agents, constants.PHYSICAL_EMBED_SIZE])
-        landmark_locations= np.empty([self.state.num_landmarks, 2])
-        landmark_physical = np.empty([self.state.num_landmarks, constants.PHYSICAL_EMBED_SIZE])
-        goals = np.empty([self.state.num_agents, constants.GOAL_SIZE])
-
-        for i, agent in enumerate(self.state.agents):
-            agent_locations[i] = agent.location
-            agent_physical[i,:3] = agent.color
-            agent_physical[i, 3] = agent.shape
-            goals[i,:2] = agent.goal.location
-            goals[i, 2] = agent.goal.agent_id
-
-        for i, landmark in enumerate(self.state.landmarks):
-            landmark_locations[i] = landmark.location
-            landmark_physical[i,:3] = landmark.color
-            landmark_physical[i, 3] = landmark.shape
-
-        return GameModule(agent_locations, agent_physical, landmark_locations, landmark_physical, goals, self.config.vocab_size, self.config.memory_size, self.config.use_utterances)

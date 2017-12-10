@@ -5,6 +5,8 @@ import constants
 
 DEFAULT_NUM_EPOCHS = 50000
 DEFAULT_LR = 1e-4
+SAVE_MODEL = True
+DEFAULT_MODEL_FILE = 'latest.pt'
 
 DEFAULT_HIDDEN_SIZE = 128
 DEFAULT_DROPOUT = 0.1
@@ -19,27 +21,37 @@ DEFAULT_OOV_PROB = 5
 DEFAULT_WORLD_DIM = 16
 MAX_AGENTS = 3
 MAX_LANDMARKS = 3
+MIN_AGENTS = 1
+MIN_LANDMARKS = 1
 USE_STRICT_COLORS = True
 STRICT_COLORS = np.array([[constants.COLOR_SCALE, 0, 0], [0, constants.COLOR_SCALE, 0], [0, 0, constants.COLOR_SCALE]])
 USE_SHAPES = True
 NUM_SHAPES = 2
+SELF_GOALS = False
 
 TrainingConfig = NamedTuple('TrainingConfig', [
     ('num_epochs', int),
-    ('learning_rate', float)
+    ('learning_rate', float),
+    ('load_model', bool),
+    ('load_model_file', str),
+    ('save_model', bool),
+    ('save_model_file', str)
     ])
 
 GameConfig = NamedTuple('GameConfig', [
     ('world_dim', Any),
     ('max_agents', int),
     ('max_landmarks', int),
+    ('min_agents', int),
+    ('min_landmarks', int),
     ('use_strict_colors', bool),
     ('strict_colors', Any),
     ('use_shapes', bool),
     ('num_shapes', int),
     ('use_utterances', bool),
     ('vocab_size', int),
-    ('memory_size', int)
+    ('memory_size', int),
+    ('self_goals', bool)
 ])
 
 ProcessingModuleConfig = NamedTuple('ProcessingModuleConfig', [
@@ -87,7 +99,11 @@ AgentModuleConfig = NamedTuple("AgentModuleConfig", [
 
 default_training_config = TrainingConfig(
         num_epochs=DEFAULT_NUM_EPOCHS,
-        learning_rate=DEFAULT_LR)
+        learning_rate=DEFAULT_LR,
+        load_model=False,
+        load_model_file="",
+        save_model=SAVE_MODEL,
+        save_model_file=DEFAULT_MODEL_FILE)
 
 default_word_counter_config = WordCountingModuleConfig(
         vocab_size=DEFAULT_VOCAB_SIZE,
@@ -97,13 +113,16 @@ default_game_config = GameConfig(
         DEFAULT_WORLD_DIM,
         MAX_AGENTS,
         MAX_LANDMARKS,
+        MIN_AGENTS,
+        MIN_LANDMARKS,
         USE_STRICT_COLORS,
         STRICT_COLORS,
         USE_SHAPES,
         NUM_SHAPES,
         USE_UTTERANCES,
         DEFAULT_VOCAB_SIZE,
-        DEFAULT_HIDDEN_SIZE)
+        DEFAULT_HIDDEN_SIZE,
+        SELF_GOALS)
 
 if USE_UTTERANCES:
     feat_size = DEFAULT_FEAT_VEC_SIZE*3
@@ -148,20 +167,27 @@ default_agent_config = AgentModuleConfig(
 def get_training_config(kwargs):
     return TrainingConfig(
             num_epochs=kwargs['n_epochs'] or default_training_config.num_epochs,
-            learning_rate=kwargs['learning_rate'] or default_training_config.learning_rate)
+            learning_rate=kwargs['learning_rate'] or default_training_config.learning_rate,
+            load_model=bool(kwargs['load_model_weights']),
+            load_model_file=kwargs['load_model_weights'] or default_training_config.load_model_file,
+            save_model=default_training_config.save_model,
+            save_model_file=kwargs['save_model_weights'] or default_training_config.save_model_file)
 
 def get_game_config(kwargs):
     return GameConfig(
             world_dim=kwargs['world_dim'] or default_game_config.world_dim,
-            max_agents=kwargs['n_agents'] or default_game_config.max_agents,
-            max_landmarks=kwargs['n_landmarks'] or default_game_config.max_landmarks,
+            max_agents=kwargs['max_agents'] or default_game_config.max_agents,
+            min_agents=kwargs['min_agents'] or default_game_config.min_agents,
+            max_landmarks=kwargs['max_landmarks'] or default_game_config.max_landmarks,
+            min_landmarks=kwargs['min_landmarks'] or default_game_config.min_landmarks,
             use_strict_colors=not kwargs['use_random_colors'],
             strict_colors=default_game_config.strict_colors,
             use_shapes=default_game_config.use_shapes,
             num_shapes=default_game_config.num_shapes,
             use_utterances=not kwargs['no_utterances'],
             vocab_size=kwargs['vocab_size'] or default_game_config.vocab_size,
-            memory_size=default_game_config.memory_size
+            memory_size=default_game_config.memory_size,
+            self_goals=kwargs['self_goals']
             )
 
 def get_agent_config(kwargs):
