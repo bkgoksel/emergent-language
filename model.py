@@ -26,7 +26,7 @@ class ProcessingModule(nn.Module):
                 nn.ELU())
 
     def forward(self, x, m):
-        m = self.cell(x.unsqueeze(0), m.unsqueeze(0))
+        m = self.cell(x, m)
         return self.fully_connected(m), m
 
 """
@@ -94,9 +94,9 @@ class ActionModule(nn.Module):
     def forward(self, physical, goal, mem, training, utterance=None):
         goal_processed, _ = self.goal_processor(goal, mem)
         if self.using_utterances:
-            x = torch.cat([physical.squeeze(0), utterance.squeeze(0), goal_processed], 1).squeeze(0)
+            x = torch.cat([physical.squeeze(1), utterance.squeeze(1), goal_processed], 1).squeeze(1)
         else:
-            x = torch.cat([physical.squeeze(0), goal_processed], 1).squeeze(0)
+            x = torch.cat([physical.squeeze(0), goal_processed], 1).squeeze(1)
         processed, mem = self.processor(x, mem)
         movement = self.movement_chooser(processed)
         if self.using_utterances:
@@ -131,72 +131,75 @@ class ActionModule(nn.Module):
             -utterance: [num_agents, num_agents, memory_size]
             -physical:[num_agents, num_agents + num_landmarks, memory_size]
             -action: [num_agents, memory_size]
+
+        config needs: -batch_size, -using_utterances, -world_dim, -vocab_size, -memory_size, -num_colors -num_shapes
 """
 
 class GameModule(nn.Module):
 
-    @classmethod
-    def from_structured_game(cls, game):
-        agent_locations = np.empty([game.state.num_agents, 2])
-        agent_physical = np.empty([game.state.num_agents, constants.PHYSICAL_EMBED_SIZE])
-        landmark_locations= np.empty([game.state.num_landmarks, 2])
-        landmark_physical = np.empty([game.state.num_landmarks, constants.PHYSICAL_EMBED_SIZE])
-        goals = np.empty([game.state.num_agents, constants.GOAL_SIZE])
-
-        for i, agent in enumerate(game.state.agents):
-            agent_locations[i] = agent.location
-            agent_physical[i,:3] = agent.color
-            agent_physical[i, 3] = agent.shape
-            goals[i,:2] = agent.goal.location
-            goals[i, 2] = agent.goal.agent_id
-
-        for i, landmark in enumerate(game.state.landmarks):
-            landmark_locations[i] = landmark.location
-            landmark_physical[i,:3] = landmark.color
-            landmark_physical[i, 3] = landmark.shape
-
-        return cls(agent_locations, agent_physical, landmark_locations, landmark_physical, goals, game.config.vocab_size, game.config.memory_size, game.config.use_utterances)
-
-    def __init__(self, agent_locations, agent_physical, landmark_locations, landmark_physical, goals, vocab_size, memory_size, using_utterances) -> None:
+    def __init__(self, config, num_agents, num_landmarks) -> None:
         super(GameModule, self).__init__()
-        self.using_utterances = using_utterances
-        self.num_agents = agent_locations.shape[0]
-        self.num_landmarks = landmark_locations.shape[0]
+
+        self.batch_size = config.batch_size # scalar: num games in this batch
+        self.using_utterances = config.use_utterances # bool: whether current batch allows utterances
+        self.num_agents = num_agents # scalar: number of agents in this batch
+        self.num_landmarks = num_landmarks # scalar: number of landmarks in this batch
         self.num_entities = self.num_agents + self.num_landmarks # type: int
 
-        self.locations = Variable(torch.from_numpy(np.concatenate((agent_locations, landmark_locations))).float())
-        self.physical = Variable(torch.from_numpy(np.concatenate((agent_physical, landmark_physical))).float())
+        # [batch_size, num_entities, 2]
+        self.locations = Variable(torch.rand(self.batch_size, self.num_entities, 2) * config.world_dim)
 
-        self.goals = Variable(torch.from_numpy(goals).float())
+        colors = (torch.rand(self.batch_size, self.num_entities, 1) * config.num_colors).floor()
+        shapes = (torch.rand(self.batch_size, self.num_entities, 1) * config.num_shapes).floor()
+
+        # [batch_size, num_entities, 2]
+        self.physical = Variable(torch.cat((colors,shapes), 2).float())
+
+        goal_agents = Tensor(self.batch_size, self.num_agents, 1)
+        for b in range(self.batch_size):
+            goal_agents[b] = torch.randperm(self.num_agents)
+        goal_entities = (torch.rand(self.batch_size, self.num_agents, 1) * self.num_landmarks).floor().long() + self.num_agents
+        goal_locations = Tensor(self.batch_size, self.num_agents, 2)
+        for b in range(self.batch_size):
+            goal_locations[b] = self.locations.data[b][goal_entities[b].squeeze()]
+
+        # [batch_size, num_agents, 3]
+        self.goals = Variable(torch.cat((goal_locations, goal_agents), 2))
+        goal_agents = Variable(goal_agents)
+
+
         self.memories = {
-            "physical": Variable(torch.zeros(self.num_agents, self.locations.size()[0], memory_size)),
-            "action": Variable(torch.zeros(self.num_agents, memory_size))}
+            "physical": Variable(torch.zeros(self.batch_size, self.num_agents, self.num_entities, config.memory_size)),
+            "action": Variable(torch.zeros(self.batch_size, self.num_agents, config.memory_size))}
 
         if self.using_utterances:
-            self.utterances = Variable(torch.zeros(self.num_agents, vocab_size))
-            self.memories["utterance"] = Variable(torch.zeros(self.num_agents, self.num_agents, memory_size ))
+            self.utterances = Variable(torch.zeros(self.batch_size, self.num_agents, config.vocab_size))
+            self.memories["utterance"] = Variable(torch.zeros(self.batch_size, self.num_agents, self.num_agents, config.memory_size ))
 
-        agent_baselines = self.locations[:self.num_agents]
-        self.observations = self.locations.unsqueeze(0) - agent_baselines.unsqueeze(1)
-        new_obs = self.goals[:,:2] - agent_baselines
-        goal_agents = self.goals[:,2].unsqueeze(1)
-        self.observed_goals = torch.cat((new_obs, goal_agents), dim=1)
+        agent_baselines = self.locations[:, :self.num_agents, :]
+        # [batch_size, num_agents, num_entities, 2]
+        self.observations = self.locations.unsqueeze(1) - agent_baselines.unsqueeze(2)
+
+        new_obs = self.goals[:,:,:2] - agent_baselines
+
+        # [batch_size, num_agents, 2] [batch_size, num_agents, 1]
+        self.observed_goals = torch.cat((new_obs, goal_agents), dim=2)
 
     """
     Updates game state given all movements and utterances and returns accrued cost
-        - movements: [num_agents, config.movement_size]
-        - utterances: [num_agents, config.utterance_size]
-        - goal_predictions: [num_agents, num_agents, config.goal_size]
+        - movements: [batch_size, num_agents, config.movement_size]
+        - utterances: [batch_size, num_agents, config.utterance_size]
+        - goal_predictions: [batch_size, num_agents, num_agents, config.goal_size]
     Returns:
-        - scalar: cost received in this episode of the game
+        - scalar: total cost of all games in the batch
     """
     def forward(self, movements, goal_predictions, utterances=None):
         self.locations = self.locations + movements
-        agent_baselines = self.locations[:self.num_agents]
-        self.observations = self.locations.unsqueeze(0)- agent_baselines.unsqueeze(1)
-        new_obs = self.goals[:,:2] - agent_baselines
-        goal_agents = self.goals[:,2].unsqueeze(1)
-        self.observed_goals = torch.cat((new_obs, goal_agents), dim=1)
+        agent_baselines = self.locations[:, :self.num_agents]
+        self.observations = self.locations.unsqueeze(1)- agent_baselines.unsqueeze(2)
+        new_obs = self.goals[:,:,:2] - agent_baselines
+        goal_agents = self.goals[:,:,2].unsqueeze(2)
+        self.observed_goals = torch.cat((new_obs, goal_agents), dim=2)
         if self.using_utterances:
             self.utterances = utterances
             return self.compute_cost(movements, goal_predictions, utterances)
@@ -206,23 +209,35 @@ class GameModule(nn.Module):
     def compute_cost(self, movements, goal_predictions, utterances=None):
         physical_cost = self.compute_physical_cost()
         movement_cost = self.compute_movement_cost(movements)
-        goal_pred_cost = self.compute_goal_pred_cost(goal_predictions)
+        #goal_pred_cost = self.compute_goal_pred_cost(goal_predictions)
+        return physical_cost + movement_cost
+        """
         if self.using_utterances:
             utterance_cost = self.compute_utterance_cost()
             return physical_cost + movement_cost + goal_pred_cost + utterance_cost
         else:
             return physical_cost + goal_pred_cost + movement_cost
+        """
 
     """
     Computes the total cost agents get from being near their goals
-    agent locations are stored as [num_agents + num_landmarks, entity_embed_size]
+    agent locations are stored as [batch_size, num_agents + num_landmarks, entity_embed_size]
     """
     def compute_physical_cost(self):
-        sorted_goals = self.goals[torch.sort(self.goals[:,2])[1]][:,:2]
-        return 10 * torch.sum(
-                torch.sqrt(
-                    torch.sum(
-                        torch.pow(self.locations[:self.num_agents,:] - sorted_goals, 2))))
+        sort_idxs = torch.sort(self.goals[:,:,2])[1]
+        sorted_goals = Variable(Tensor(self.goals.size()))
+        for b in range(self.batch_size):
+            sorted_goals[b] = self.goals[b][sort_idxs[b]]
+        sorted_goals = sorted_goals[:,:,:2]
+        return 2*torch.sum(
+                    torch.sqrt(
+                        torch.sum(
+                            torch.pow(
+                                self.locations[:,:self.num_agents,:] - sorted_goals, 
+                                2),
+                            -1)
+                        )
+                    )
 
     """
     Computes the total cost agents get from predicting others' goals
@@ -232,15 +247,15 @@ class GameModule(nn.Module):
 
     """
     Computes the total cost agents get from uttering
-    """
     def compute_utterance_cost(self):
         return torch.sqrt(torch.sum(torch.pow(self.utterances,2)))
+    """
 
     """
     Computes the total cost agents get from moving
     """
     def compute_movement_cost(self, movements):
-        return torch.sqrt(torch.sum(torch.pow(movements,2)))
+        return torch.sum(torch.sqrt(torch.sum(torch.pow(movements, 2), -1)))
 
 class WordCountingModule(nn.Module):
     def __init__(self, config: WordCountingModuleConfig) -> None:
@@ -275,20 +290,15 @@ class AgentModule(nn.Module):
         self.physical_pooling = nn.AdaptiveAvgPool2d((1,config.feat_vec_size))
         self.action_processor = ActionModule(config.action_processor)
         self.total_cost = Variable(torch.zeros(1))
-        self.all_movements = [] # type: ignore
 
         if self.using_utterances:
             self.utterance_processor = GoalPredictingProcessingModule(config.utterance_processor)
             self.utterance_pooling = nn.AdaptiveAvgPool2d((1,config.feat_vec_size))
-            self.all_utterances = [] # type: ignore
             if self.penalizing_words:
                 self.word_counter = WordCountingModule(config.word_counter)
 
     def reset(self):
         self.total_cost = Variable(torch.zeros(1))
-        self.all_movements = []
-        if self.using_utterances:
-            self.all_utterances = [] # type: ignore
 
     def train(self, mode=True):
         super(AgentModule, self).train(mode)
@@ -297,58 +307,56 @@ class AgentModule(nn.Module):
     def update_mem(self, game, mem_str, new_mem, agent, other_agent=None):
         new_big_mem = Variable(Tensor(game.memories[mem_str].data))
         if other_agent is not None:
-            new_big_mem[agent, other_agent] = new_mem
+            new_big_mem[:, agent, other_agent] = new_mem
         else:
-            new_big_mem[agent] = new_mem
+            new_big_mem[:, agent] = new_mem
         game.memories[mem_str] = new_big_mem
 
     def forward(self, game):
         if not self.training:
             timesteps = [] # type: List[Any]
         for t in range(self.time_horizon):
-            movements = Variable(torch.zeros((game.num_entities, self.movement_dim_size)))
+            movements = Variable(torch.zeros((game.batch_size, game.num_entities, self.movement_dim_size)))
 
             if self.using_utterances:
-                utterances = Variable(Tensor(game.num_agents, self.vocab_size))
+                utterances = Variable(Tensor(game.batch_size, game.num_agents, self.vocab_size))
 
-            goal_predictions = Variable(Tensor(game.num_agents, game.num_agents, self.goal_size))
+            goal_predictions = Variable(Tensor(game.batch_size, game.num_agents, game.num_agents, self.goal_size))
 
             for agent in range(game.num_agents):
                 if self.using_utterances:
-                    utterance_processes = Variable(Tensor(game.num_agents, self.processing_hidden_size))
+                    utterance_processes = Variable(Tensor(game.batch_size, game.num_agents, self.processing_hidden_size))
 
-                physical_processes = Variable(Tensor(game.num_entities, self.processing_hidden_size))
+                physical_processes = Variable(Tensor(game.batch_size, game.num_entities, self.processing_hidden_size))
 
                 for other_agent in range(game.num_agents):
                     if self.using_utterances:
-                        utterance_processed, new_mem, goal_predicted = self.utterance_processor(game.utterances[other_agent], game.memories["utterance"][agent, other_agent])
+                        utterance_processed, new_mem, goal_predicted = self.utterance_processor(game.utterances[:,other_agent], game.memories["utterance"][:, agent, other_agent])
                         self.update_mem(game, "utterance", new_mem, agent, other_agent)
-                        utterance_processes[other_agent, :] = utterance_processed
-                        goal_predictions[agent, other_agent, :] = goal_predicted
+                        utterance_processes[:, other_agent, :] = utterance_processed
+                        goal_predictions[:, agent, other_agent, :] = goal_predicted
 
-                    physical_processed, new_mem = self.physical_processor(torch.cat((game.observations[agent,other_agent],game.physical[other_agent])), game.memories["physical"][agent, other_agent])
+                    physical_processed, new_mem = self.physical_processor(torch.cat((game.observations[:,agent,other_agent],game.physical[:,other_agent]), 1), game.memories["physical"][:,agent, other_agent])
                     self.update_mem(game, "physical", new_mem,agent, other_agent)
-                    physical_processes[other_agent, :] = physical_processed
+                    physical_processes[:,other_agent,:] = physical_processed
 
                 for landmark in range(game.num_agents, game.num_agents + game.num_landmarks):
-                    physical_processed, new_mem = self.physical_processor(torch.cat((game.observations[agent,landmark],game.physical[landmark])), game.memories["physical"][agent, landmark])
+                    physical_processed, new_mem = self.physical_processor(torch.cat((game.observations[:,agent,landmark],game.physical[:,landmark]),1), game.memories["physical"][:,agent, landmark])
                     self.update_mem(game, "physical", new_mem, agent, landmark)
-                    physical_processes[landmark, :] = physical_processed
+                    physical_processes[:,landmark,:] = physical_processed
 
-                physical_feat = self.physical_pooling(physical_processes.unsqueeze(0))
+                physical_feat = self.physical_pooling(physical_processes)
                 if self.using_utterances:
-                    utterance_feat = self.utterance_pooling(utterance_processes.unsqueeze(0))
-                    movement, utterance, new_mem = self.action_processor(physical_feat, game.observed_goals[agent], game.memories["action"][agent], self.training, utterance_feat)
+                    utterance_feat = self.utterance_pooling(utterance_processes)
+                    movement, utterance, new_mem = self.action_processor(physical_feat, game.observed_goals[:,agent], game.memories["action"][:,agent], self.training, utterance_feat)
                 else:
-                    movement, new_mem = self.action_processor(physical_feat, game.observed_goals[agent], game.memories["action"][agent], self.training)
+                    movement, new_mem = self.action_processor(physical_feat, game.observed_goals[:,agent], game.memories["action"][:,agent], self.training)
 
                 self.update_mem(game, "action", new_mem, agent)
-                movements[agent,:] = movement
+                movements[:,agent,:] = movement
 
-                self.all_movements.append(movement)
                 if self.using_utterances:
-                    self.all_utterances.append(utterance)
-                    utterances[agent, :] = utterance
+                    utterances[:,agent,:] = utterance
 
             if self.using_utterances:
                 cost = game(movements, goal_predictions, utterances)

@@ -3,14 +3,12 @@ TODO:
 [x] Weight saving
 [x] Add a test mode where utterances are argmaxed instead of Gumbel-softmaxed
 [x] Add a way to "replay" an episode easily
+[x] Better loss over time information printing
+[x] Batching
 [x] Test role of comms by testing in envs where each agent knows its goal vs it doesn't
     [x] Make it possible to have agent get its own goal, determinable with a flag
     [x] Make this a training flag
     [ ] Test how this affects performance
-[x] Better loss over time information printing
-[ ] Batching
-    [ ] Each batch has a fixed number of agents and landmarks
-[ ] Try with word penalization and large vocabulary size
 [ ] Goal predictions(relative to yourself and agent index)
 
 LEARNING END:

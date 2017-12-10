@@ -4,21 +4,21 @@ import torch
 import torch.optim as optim
 import configs
 from model import AgentModule, GameModule
-from game import Game
 from collections import defaultdict
 
 parser = argparse.ArgumentParser(description="Trains the agents for cooperative communication task")
 parser.add_argument('--no-utterances', action='store_true', help='if specified disables the communications channel (default enabled)')
 parser.add_argument('--penalize-words', action='store_true', help='if specified penalizes uncommon word usage (default disabled)')
-parser.add_argument('--self-goals', action='store_true', help='if specified each agent always gets its own goal (default disabled)')
-parser.add_argument('--use-random-colors', action='store_true', help='if specified gives random colors(RGB) to object rather than 3 predetermined colors (default disabled, each object is R,G or B)')
 parser.add_argument('--n-epochs', '-e', type=int, help='if specified sets number of training epochs (default 5000)')
-parser.add_argument('--learning-rate', type=int, help='if specified sets learning rate (default 1e-3)')
+parser.add_argument('--learning-rate', type=float, help='if specified sets learning rate (default 1e-3)')
+parser.add_argument('--batch-size', type=int, help='if specified sets batch size(default 256)')
 parser.add_argument('--n-timesteps', '-t', type=int, help='if specified sets timestep length of each episode (default 32)')
+parser.add_argument('--num-shapes', '-s', type=int, help='if specified sets number of colors (default 3)')
+parser.add_argument('--num-colors', '-c', type=int, help='if specified sets number of shapes (default 3)')
 parser.add_argument('--max-agents', type=int, help='if specified sets maximum number of agents in each episode (default 3)')
 parser.add_argument('--min-agents', type=int, help='if specified sets minimum number of agents in each episode (default 1)')
 parser.add_argument('--max-landmarks', type=int, help='if specified sets maximum number of landmarks in each episode (default 3)')
-parser.add_argument('--min-landmarks', type=int, help='if specified sets maximum number of landmarks in each episode (default 3)')
+parser.add_argument('--min-landmarks', type=int, help='if specified sets minimum number of landmarks in each episode (default 1)')
 parser.add_argument('--vocab-size', '-v', type=int, help='if specified sets maximum vocab size in each episode (default 6)')
 parser.add_argument('--world-dim', '-w', type=int, help='if specified sets the side length of the square grid where all agents and landmakrs spawn(default 16)')
 parser.add_argument('--oov-prob', '-o', type=int, help='higher value penalize uncommon words less when penalizing words (default 6)')
@@ -33,6 +33,7 @@ def print_losses_for(past, epoch, running_costs, losses, game_config):
 
 
 def print_losses(epoch, running_costs, losses, game_config):
+    print_losses_for(1, epoch, running_costs, losses, game_config)
     if epoch % 10 == 9:
         print_losses_for(9, epoch, running_costs, losses, game_config)
     if epoch % 100 == 99:
@@ -52,20 +53,24 @@ def main():
     running_costs = []
     losses = defaultdict(lambda:defaultdict(list))
     for epoch in range(training_config.num_epochs):
+        num_agents = np.random.randint(game_config.min_agents, game_config.max_agents+1)
+        num_landmarks = np.random.randint(game_config.min_landmarks, game_config.max_landmarks+1)
         agent.reset()
-        game = GameModule.from_structured_game(Game(game_config))
+        game = GameModule(game_config, num_agents, num_landmarks)
         optimizer.zero_grad()
         total_loss = agent(game)
         total_loss.backward()
         optimizer.step()
         running_costs.append(total_loss)
-        losses[game.num_agents][game.num_landmarks].append(total_loss.data[0])
+        losses[num_agents][num_landmarks].append(total_loss.data[0])
         print_losses(epoch, running_costs, losses, game_config)
     if training_config.save_model:
         torch.save(agent, training_config.save_model_file)
         print("Saved agent model weights at %s" % training_config.save_model_file)
+    """
     import code
     code.interact(local=locals())
+    """
 
 
 if __name__ == "__main__":

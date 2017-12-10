@@ -3,6 +3,7 @@ from typing import NamedTuple, Any, List
 import numpy as np
 import constants
 
+DEFAULT_BATCH_SIZE = 256
 DEFAULT_NUM_EPOCHS = 50000
 DEFAULT_LR = 1e-4
 SAVE_MODEL = True
@@ -23,11 +24,8 @@ MAX_AGENTS = 3
 MAX_LANDMARKS = 3
 MIN_AGENTS = 1
 MIN_LANDMARKS = 1
-USE_STRICT_COLORS = True
-STRICT_COLORS = np.array([[constants.COLOR_SCALE, 0, 0], [0, constants.COLOR_SCALE, 0], [0, 0, constants.COLOR_SCALE]])
-USE_SHAPES = True
+NUM_COLORS = 3
 NUM_SHAPES = 2
-SELF_GOALS = False
 
 TrainingConfig = NamedTuple('TrainingConfig', [
     ('num_epochs', int),
@@ -39,19 +37,17 @@ TrainingConfig = NamedTuple('TrainingConfig', [
     ])
 
 GameConfig = NamedTuple('GameConfig', [
+    ('batch_size', int),
     ('world_dim', Any),
     ('max_agents', int),
     ('max_landmarks', int),
     ('min_agents', int),
     ('min_landmarks', int),
-    ('use_strict_colors', bool),
-    ('strict_colors', Any),
-    ('use_shapes', bool),
     ('num_shapes', int),
+    ('num_colors', int),
     ('use_utterances', bool),
     ('vocab_size', int),
     ('memory_size', int),
-    ('self_goals', bool)
 ])
 
 ProcessingModuleConfig = NamedTuple('ProcessingModuleConfig', [
@@ -110,19 +106,18 @@ default_word_counter_config = WordCountingModuleConfig(
         oov_prob=DEFAULT_OOV_PROB)
 
 default_game_config = GameConfig(
+        DEFAULT_BATCH_SIZE,
         DEFAULT_WORLD_DIM,
         MAX_AGENTS,
         MAX_LANDMARKS,
         MIN_AGENTS,
         MIN_LANDMARKS,
-        USE_STRICT_COLORS,
-        STRICT_COLORS,
-        USE_SHAPES,
         NUM_SHAPES,
+        NUM_COLORS,
         USE_UTTERANCES,
         DEFAULT_VOCAB_SIZE,
-        DEFAULT_HIDDEN_SIZE,
-        SELF_GOALS)
+        DEFAULT_HIDDEN_SIZE
+        )
 
 if USE_UTTERANCES:
     feat_size = DEFAULT_FEAT_VEC_SIZE*3
@@ -175,19 +170,17 @@ def get_training_config(kwargs):
 
 def get_game_config(kwargs):
     return GameConfig(
+            batch_size=kwargs['batch_size'] or default_game_config.batch_size,
             world_dim=kwargs['world_dim'] or default_game_config.world_dim,
             max_agents=kwargs['max_agents'] or default_game_config.max_agents,
             min_agents=kwargs['min_agents'] or default_game_config.min_agents,
             max_landmarks=kwargs['max_landmarks'] or default_game_config.max_landmarks,
             min_landmarks=kwargs['min_landmarks'] or default_game_config.min_landmarks,
-            use_strict_colors=not kwargs['use_random_colors'],
-            strict_colors=default_game_config.strict_colors,
-            use_shapes=default_game_config.use_shapes,
-            num_shapes=default_game_config.num_shapes,
+            num_shapes=kwargs['num_shapes'] or default_game_config.num_shapes,
+            num_colors=kwargs['num_colors'] or default_game_config.num_colors,
             use_utterances=not kwargs['no_utterances'],
             vocab_size=kwargs['vocab_size'] or default_game_config.vocab_size,
-            memory_size=default_game_config.memory_size,
-            self_goals=kwargs['self_goals']
+            memory_size=default_game_config.memory_size
             )
 
 def get_agent_config(kwargs):
