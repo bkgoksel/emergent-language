@@ -20,24 +20,16 @@ parser.add_argument('--min-agents', type=int, help='if specified sets minimum nu
 parser.add_argument('--max-landmarks', type=int, help='if specified sets maximum number of landmarks in each episode (default 3)')
 parser.add_argument('--min-landmarks', type=int, help='if specified sets minimum number of landmarks in each episode (default 1)')
 parser.add_argument('--vocab-size', '-v', type=int, help='if specified sets maximum vocab size in each episode (default 6)')
-parser.add_argument('--world-dim', '-w', type=int, help='if specified sets the side length of the square grid where all agents and landmakrs spawn(default 16)')
+parser.add_argument('--world-dim', '-w', type=int, help='if specified sets the side length of the square grid where all agents and landmarks spawn(default 16)')
 parser.add_argument('--oov-prob', '-o', type=int, help='higher value penalize uncommon words less when penalizing words (default 6)')
 parser.add_argument('--load-model-weights', type=str, help='if specified start with saved model weights saved at file given by this argument')
 parser.add_argument('--save-model-weights', type=str, help='if specified save the model weights at file given by this argument')
 
-def print_losses_for(past, epoch, running_costs, losses, game_config):
-    print("[epoch: %d][Last %d eps avg cost: %f]" % (epoch, past+1, np.mean(running_costs[-past:])))
+def print_losses(epoch, running_costs, losses, game_config):
     for a in range(game_config.min_agents, game_config.max_agents + 1):
         for l in range(game_config.min_landmarks, game_config.max_landmarks + 1):
-            print("[Last %d eps avg cost for [%d agents, %d landmarks]: %f]" % (past+1, a, l, np.mean(losses[a][l][-past:])))
-
-
-def print_losses(epoch, running_costs, losses, game_config):
-    print_losses_for(1, epoch, running_costs, losses, game_config)
-    if epoch % 10 == 9:
-        print_losses_for(9, epoch, running_costs, losses, game_config)
-    if epoch % 100 == 99:
-        print_losses_for(99, epoch, running_costs, losses, game_config)
+            loss = losses[a][l][-1] if len(losses[a][l]) > 0 else 0
+            print("[epoch %d][Last batch cost for [%d agents, %d landmarks][%d batches]: %f]" % (epoch, a, l, len(losses[a][l]), loss))
 
 def main():
     args = vars(parser.parse_args())
@@ -61,8 +53,9 @@ def main():
         total_loss = agent(game)
         total_loss.backward()
         optimizer.step()
-        running_costs.append(total_loss)
-        losses[num_agents][num_landmarks].append(total_loss.data[0])
+        per_agent_loss = total_loss.data[0] / num_agents / game_config.batch_size
+        running_costs.append(per_agent_loss)
+        losses[num_agents][num_landmarks].append(per_agent_loss)
         print_losses(epoch, running_costs, losses, game_config)
     if training_config.save_model:
         torch.save(agent, training_config.save_model_file)

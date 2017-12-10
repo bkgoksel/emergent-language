@@ -157,7 +157,10 @@ class GameModule(nn.Module):
 
         goal_agents = Tensor(self.batch_size, self.num_agents, 1)
         for b in range(self.batch_size):
-            goal_agents[b] = torch.randperm(self.num_agents)
+            if self.num_agents == 2:
+                goal_agents[b] = Tensor([1,0])
+            else:
+                goal_agents[b] = torch.randperm(self.num_agents)
         goal_entities = (torch.rand(self.batch_size, self.num_agents, 1) * self.num_landmarks).floor().long() + self.num_agents
         goal_locations = Tensor(self.batch_size, self.num_agents, 2)
         for b in range(self.batch_size):
