@@ -240,7 +240,7 @@ class GameModule(nn.Module):
                     torch.sqrt(
                         torch.sum(
                             torch.pow(
-                                self.locations[:,:self.num_agents,:] - sorted_goals, 
+                                self.locations[:,:self.num_agents,:] - sorted_goals,
                                 2),
                             -1)
                         )
@@ -271,8 +271,8 @@ class WordCountingModule(nn.Module):
         self.word_counts = Variable(Tensor(config.vocab_size))
 
     def forward(self, utterances):
-        cost = -utterances/(self.oov_prob + self.word_counts.sum() - 1)
-        self.word_counts = self.word_counts() + utterances
+        cost = -(utterances/(self.oov_prob + self.word_counts.sum() - 1)).sum()
+        self.word_counts = self.word_counts + utterances
         return cost
 
 
@@ -294,18 +294,20 @@ class AgentModule(nn.Module):
         self.goal_size = config.goal_size
         self.processing_hidden_size = config.physical_processor.hidden_size
         self.physical_processor = ProcessingModule(config.physical_processor)
-        self.physical_pooling = nn.AdaptiveAvgPool2d((1,config.feat_vec_size))
+        self.physical_pooling = nn.AdaptiveMaxPool2d((1,config.feat_vec_size))
         self.action_processor = ActionModule(config.action_processor)
         self.total_cost = Variable(torch.zeros(1))
 
         if self.using_utterances:
             self.utterance_processor = GoalPredictingProcessingModule(config.utterance_processor)
-            self.utterance_pooling = nn.AdaptiveAvgPool2d((1,config.feat_vec_size))
+            self.utterance_pooling = nn.AdaptiveMaxPool2d((1,config.feat_vec_size))
             if self.penalizing_words:
                 self.word_counter = WordCountingModule(config.word_counter)
 
     def reset(self):
         self.total_cost = Variable(torch.zeros(1))
+        if self.using_utterances and self.penalizing_words:
+            self.word_counter = WordCountingModule(config.word_counter)
 
     def train(self, mode=True):
         super(AgentModule, self).train(mode)
