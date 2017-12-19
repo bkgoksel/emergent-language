@@ -149,6 +149,7 @@ class GameModule(nn.Module):
 
         self.batch_size = config.batch_size # scalar: num games in this batch
         self.using_utterances = config.use_utterances # bool: whether current batch allows utterances
+        self.using_cuda = config.use_cuda
         self.num_agents = num_agents # scalar: number of agents in this batch
         self.num_landmarks = num_landmarks # scalar: number of landmarks in this batch
         self.num_entities = self.num_agents + self.num_landmarks # type: int
@@ -161,7 +162,7 @@ class GameModule(nn.Module):
         goal_entities = (torch.rand(self.batch_size, self.num_agents, 1) * self.num_landmarks).floor().long() + self.num_agents
         goal_locations = Tensor(self.batch_size, self.num_agents, 2)
 
-        if config.use_cuda:
+        if self.using_cuda:
             locations = locations.cuda()
             colors = colors.cuda()
             shapes = shapes.cuda()
@@ -186,7 +187,7 @@ class GameModule(nn.Module):
         goal_agents = Variable(goal_agents)
 
 
-        if config.use_cuda:
+        if self.using_cuda:
             self.memories = {
                 "physical": Variable(torch.zeros(self.batch_size, self.num_agents, self.num_entities, config.memory_size).cuda()),
                 "action": Variable(torch.zeros(self.batch_size, self.num_agents, config.memory_size).cuda())}
@@ -196,7 +197,7 @@ class GameModule(nn.Module):
                 "action": Variable(torch.zeros(self.batch_size, self.num_agents, config.memory_size))}
 
         if self.using_utterances:
-            if config.use_cuda:
+            if self.using_cuda:
                 self.utterances = Variable(torch.zeros(self.batch_size, self.num_agents, config.vocab_size).cuda())
                 self.memories["utterance"] = Variable(torch.zeros(self.batch_size, self.num_agents, self.num_agents, config.memory_size).cuda())
             else:
@@ -244,6 +245,8 @@ class GameModule(nn.Module):
     agent locations are stored as [batch_size, num_agents + num_landmarks, entity_embed_size]
     """
     def compute_physical_cost(self):
+        if self.using_cuda:
+            Tensor = torch.cuda.FloatTensor
         sort_idxs = torch.sort(self.goals[:,:,2])[1]
         sorted_goals = Variable(Tensor(self.goals.size()))
         for b in range(self.batch_size):
