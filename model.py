@@ -52,13 +52,17 @@ class GoalPredictingProcessingModule(nn.Module):
         return processed, mem, goal_prediction
 
 class GumbelSoftmax(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, use_cuda=False) -> None:
         super(GumbelSoftmax, self).__init__()
+        self.using_cuda = use_cuda
         self.softmax = nn.Softmax(dim=1)
         self.temp = 1
 
     def forward(self, x):
-        U = Variable(torch.rand(x.size()))
+        if self.using_cuda:
+            U = Variable(torch.rand(x.size()).cuda())
+        else:
+            U = Variable(torch.rand(x.size()))
         y = x -torch.log(-torch.log(U + 1e-20) + 1e-20)
         return self.softmax(y/self.temp)
 
@@ -75,6 +79,7 @@ class ActionModule(nn.Module):
     def __init__(self, config: ActionModuleConfig) -> None:
         super(ActionModule, self).__init__()
         self.using_utterances = config.use_utterances
+        self.using_cuda = config.use_cuda
         self.goal_processor = ProcessingModule(config.goal_processor)
         self.processor = ProcessingModule(config.action_processor)
         self.movement_step_size = config.movement_step_size
@@ -89,7 +94,7 @@ class ActionModule(nn.Module):
                     nn.Linear(config.action_processor.hidden_size, config.hidden_size),
                     nn.ELU(),
                     nn.Linear(config.hidden_size, config.vocab_size))
-            self.gumbel_softmax = GumbelSoftmax()
+            self.gumbel_softmax = GumbelSoftmax(config.use_cuda)
 
     def forward(self, physical, goal, mem, training, utterance=None):
         goal_processed, _ = self.goal_processor(goal, mem)
@@ -105,6 +110,8 @@ class ActionModule(nn.Module):
                 utterance = self.gumbel_softmax(utter)
             else:
                 utterance = torch.zeros(utter.size())
+                if self.using_cuda:
+                    utterance = utterance.cuda()
                 max_utter = utter.max(1)[1]
                 max_utter = max_utter.data[0]
                 utterance[0, max_utter] = 1
@@ -146,23 +153,31 @@ class GameModule(nn.Module):
         self.num_landmarks = num_landmarks # scalar: number of landmarks in this batch
         self.num_entities = self.num_agents + self.num_landmarks # type: int
 
-        # [batch_size, num_entities, 2]
-        self.locations = Variable(torch.rand(self.batch_size, self.num_entities, 2) * config.world_dim)
-
+        locations = torch.rand(self.batch_size, self.num_entities, 2) * config.world_dim
         colors = (torch.rand(self.batch_size, self.num_entities, 1) * config.num_colors).floor()
         shapes = (torch.rand(self.batch_size, self.num_entities, 1) * config.num_shapes).floor()
 
+        goal_agents = Tensor(self.batch_size, self.num_agents, 1)
+        goal_entities = (torch.rand(self.batch_size, self.num_agents, 1) * self.num_landmarks).floor().long() + self.num_agents
+        goal_locations = Tensor(self.batch_size, self.num_agents, 2)
+
+        if config.use_cuda:
+            locations = locations.cuda()
+            colors = colors.cuda()
+            shapes = shapes.cuda()
+
+            goal_agents = goal_agents.cuda()
+            goal_entities = goal_entities.cuda()
+            goal_locations = goal_locations.cuda()
+
+        # [batch_size, num_entities, 2]
+        self.locations = Variable(locations)
         # [batch_size, num_entities, 2]
         self.physical = Variable(torch.cat((colors,shapes), 2).float())
 
-        goal_agents = Tensor(self.batch_size, self.num_agents, 1)
         for b in range(self.batch_size):
-            if self.num_agents == 2:
-                goal_agents[b] = Tensor([1,0])
-            else:
-                goal_agents[b] = torch.randperm(self.num_agents)
-        goal_entities = (torch.rand(self.batch_size, self.num_agents, 1) * self.num_landmarks).floor().long() + self.num_agents
-        goal_locations = Tensor(self.batch_size, self.num_agents, 2)
+            goal_agents[b] = torch.randperm(self.num_agents)
+
         for b in range(self.batch_size):
             goal_locations[b] = self.locations.data[b][goal_entities[b].squeeze()]
 
@@ -171,13 +186,22 @@ class GameModule(nn.Module):
         goal_agents = Variable(goal_agents)
 
 
-        self.memories = {
-            "physical": Variable(torch.zeros(self.batch_size, self.num_agents, self.num_entities, config.memory_size)),
-            "action": Variable(torch.zeros(self.batch_size, self.num_agents, config.memory_size))}
+        if config.use_cuda:
+            self.memories = {
+                "physical": Variable(torch.zeros(self.batch_size, self.num_agents, self.num_entities, config.memory_size).cuda()),
+                "action": Variable(torch.zeros(self.batch_size, self.num_agents, config.memory_size).cuda())}
+        else:
+            self.memories = {
+                "physical": Variable(torch.zeros(self.batch_size, self.num_agents, self.num_entities, config.memory_size)),
+                "action": Variable(torch.zeros(self.batch_size, self.num_agents, config.memory_size))}
 
         if self.using_utterances:
-            self.utterances = Variable(torch.zeros(self.batch_size, self.num_agents, config.vocab_size))
-            self.memories["utterance"] = Variable(torch.zeros(self.batch_size, self.num_agents, self.num_agents, config.memory_size ))
+            if config.use_cuda:
+                self.utterances = Variable(torch.zeros(self.batch_size, self.num_agents, config.vocab_size).cuda())
+                self.memories["utterance"] = Variable(torch.zeros(self.batch_size, self.num_agents, self.num_agents, config.memory_size).cuda())
+            else:
+                self.utterances = Variable(torch.zeros(self.batch_size, self.num_agents, config.vocab_size))
+                self.memories["utterance"] = Variable(torch.zeros(self.batch_size, self.num_agents, self.num_agents, config.memory_size))
 
         agent_baselines = self.locations[:, :self.num_agents, :]
         # [batch_size, num_agents, num_entities, 2]
@@ -212,15 +236,8 @@ class GameModule(nn.Module):
     def compute_cost(self, movements, goal_predictions, utterances=None):
         physical_cost = self.compute_physical_cost()
         movement_cost = self.compute_movement_cost(movements)
-        #goal_pred_cost = self.compute_goal_pred_cost(goal_predictions)
-        return physical_cost + movement_cost
-        """
-        if self.using_utterances:
-            utterance_cost = self.compute_utterance_cost()
-            return physical_cost + movement_cost + goal_pred_cost + utterance_cost
-        else:
-            return physical_cost + goal_pred_cost + movement_cost
-        """
+        goal_pred_cost = self.compute_goal_pred_cost(goal_predictions)
+        return physical_cost + goal_pred_cost + movement_cost
 
     """
     Computes the total cost agents get from being near their goals
@@ -249,12 +266,6 @@ class GameModule(nn.Module):
         return 0
 
     """
-    Computes the total cost agents get from uttering
-    def compute_utterance_cost(self):
-        return torch.sqrt(torch.sum(torch.pow(self.utterances,2)))
-    """
-
-    """
     Computes the total cost agents get from moving
     """
     def compute_movement_cost(self, movements):
@@ -264,7 +275,10 @@ class WordCountingModule(nn.Module):
     def __init__(self, config: WordCountingModuleConfig) -> None:
         super(WordCountingModule, self).__init__()
         self.oov_prob = config.oov_prob
-        self.word_counts = Variable(Tensor(config.vocab_size))
+        word_counts = Tensor(config.vocab_size)
+        if config.use_cuda:
+            word_counts.cuda()
+        self.word_counts = Variable(word_counts)
 
     def forward(self, utterances):
         cost = -(utterances/(self.oov_prob + self.word_counts.sum() - 1)).sum()
@@ -284,6 +298,7 @@ class AgentModule(nn.Module):
         self.training = True
         self.using_utterances = config.use_utterances
         self.penalizing_words = config.penalize_words
+        self.using_cuda = config.use_cuda
         self.time_horizon = config.time_horizon
         self.movement_dim_size = config.movement_dim_size
         self.vocab_size = config.vocab_size
@@ -292,7 +307,10 @@ class AgentModule(nn.Module):
         self.physical_processor = ProcessingModule(config.physical_processor)
         self.physical_pooling = nn.AdaptiveMaxPool2d((1,config.feat_vec_size))
         self.action_processor = ActionModule(config.action_processor)
-        self.total_cost = Variable(torch.zeros(1))
+        if self.using_cuda:
+            self.total_cost = Variable(torch.zeros(1).cuda())
+        else:
+            self.total_cost = Variable(torch.zeros(1))
 
         if self.using_utterances:
             self.utterance_processor = GoalPredictingProcessingModule(config.utterance_processor)
@@ -301,16 +319,24 @@ class AgentModule(nn.Module):
                 self.word_counter = WordCountingModule(config.word_counter)
 
     def reset(self):
-        self.total_cost = Variable(torch.zeros(1))
-        if self.using_utterances and self.penalizing_words:
-            self.word_counter.word_counts = Variable(Tensor(self.vocab_size))
+        if self.using_cuda:
+            self.total_cost = Variable(torch.zeros(1).cuda())
+            if self.using_utterances and self.penalizing_words:
+                self.word_counter.word_counts = Variable(Tensor(self.vocab_size).cuda())
+        else:
+            self.total_cost = Variable(torch.zeros(1))
+            if self.using_utterances and self.penalizing_words:
+                self.word_counter.word_counts = Variable(Tensor(self.vocab_size))
 
     def train(self, mode=True):
         super(AgentModule, self).train(mode)
         self.training = mode
 
     def update_mem(self, game, mem_str, new_mem, agent, other_agent=None):
-        new_big_mem = Variable(Tensor(game.memories[mem_str].data))
+        if self.using_cuda:
+            new_big_mem = Variable(Tensor(game.memories[mem_str].data).cuda())
+        else:
+            new_big_mem = Variable(Tensor(game.memories[mem_str].data))
         if other_agent is not None:
             new_big_mem[:, agent, other_agent] = new_mem
         else:
@@ -321,18 +347,26 @@ class AgentModule(nn.Module):
         if not self.training:
             timesteps = [] # type: List[Any]
         for t in range(self.time_horizon):
-            movements = Variable(torch.zeros((game.batch_size, game.num_entities, self.movement_dim_size)))
-
-            if self.using_utterances:
-                utterances = Variable(Tensor(game.batch_size, game.num_agents, self.vocab_size))
-
-            goal_predictions = Variable(Tensor(game.batch_size, game.num_agents, game.num_agents, self.goal_size))
+            if self.using_cuda:
+                movements = Variable(torch.zeros((game.batch_size, game.num_entities, self.movement_dim_size)).cuda())
+                if self.using_utterances:
+                    utterances = Variable(Tensor(game.batch_size, game.num_agents, self.vocab_size).cuda())
+                goal_predictions = Variable(Tensor(game.batch_size, game.num_agents, game.num_agents, self.goal_size).cuda())
+            else:
+                movements = Variable(torch.zeros((game.batch_size, game.num_entities, self.movement_dim_size)))
+                if self.using_utterances:
+                    utterances = Variable(Tensor(game.batch_size, game.num_agents, self.vocab_size))
+                goal_predictions = Variable(Tensor(game.batch_size, game.num_agents, game.num_agents, self.goal_size))
 
             for agent in range(game.num_agents):
-                if self.using_utterances:
-                    utterance_processes = Variable(Tensor(game.batch_size, game.num_agents, self.processing_hidden_size))
-
-                physical_processes = Variable(Tensor(game.batch_size, game.num_entities, self.processing_hidden_size))
+                if self.using_cuda:
+                    if self.using_utterances:
+                        utterance_processes = Variable(Tensor(game.batch_size, game.num_agents, self.processing_hidden_size).cuda())
+                    physical_processes = Variable(Tensor(game.batch_size, game.num_entities, self.processing_hidden_size).cuda())
+                else:
+                    if self.using_utterances:
+                        utterance_processes = Variable(Tensor(game.batch_size, game.num_agents, self.processing_hidden_size))
+                    physical_processes = Variable(Tensor(game.batch_size, game.num_entities, self.processing_hidden_size))
 
                 for other_agent in range(game.num_agents):
                     if self.using_utterances:

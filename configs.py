@@ -49,6 +49,7 @@ GameConfig = NamedTuple('GameConfig', [
     ('use_utterances', bool),
     ('vocab_size', int),
     ('memory_size', int),
+    ('use_cuda', bool),
 ])
 
 ProcessingModuleConfig = NamedTuple('ProcessingModuleConfig', [
@@ -59,7 +60,8 @@ ProcessingModuleConfig = NamedTuple('ProcessingModuleConfig', [
 
 WordCountingModuleConfig = NamedTuple('WordCountingModuleConfig', [
     ('vocab_size', int),
-    ('oov_prob', float)
+    ('oov_prob', float),
+    ('use_cuda', bool)
     ])
 
 GoalPredictingProcessingModuleConfig = NamedTuple("GoalPredictingProcessingModuleConfig", [
@@ -77,7 +79,8 @@ ActionModuleConfig = NamedTuple("ActionModuleConfig", [
     ('movement_dim_size', int),
     ('movement_step_size', int),
     ('vocab_size', int),
-    ('use_utterances', bool)
+    ('use_utterances', bool),
+    ('use_cuda', bool)
     ])
 
 AgentModuleConfig = NamedTuple("AgentModuleConfig", [
@@ -91,7 +94,8 @@ AgentModuleConfig = NamedTuple("AgentModuleConfig", [
     ('action_processor', ActionModuleConfig),
     ('word_counter', WordCountingModuleConfig),
     ('use_utterances', bool),
-    ('penalize_words', bool)
+    ('penalize_words', bool),
+    ('use_cuda', bool)
     ])
 
 default_training_config = TrainingConfig(
@@ -105,7 +109,8 @@ default_training_config = TrainingConfig(
 
 default_word_counter_config = WordCountingModuleConfig(
         vocab_size=DEFAULT_VOCAB_SIZE,
-        oov_prob=DEFAULT_OOV_PROB)
+        oov_prob=DEFAULT_OOV_PROB,
+        use_cuda=False)
 
 default_game_config = GameConfig(
         DEFAULT_BATCH_SIZE,
@@ -118,7 +123,8 @@ default_game_config = GameConfig(
         NUM_COLORS,
         USE_UTTERANCES,
         DEFAULT_VOCAB_SIZE,
-        DEFAULT_HIDDEN_SIZE
+        DEFAULT_HIDDEN_SIZE,
+        False
         )
 
 if USE_UTTERANCES:
@@ -140,7 +146,8 @@ default_action_module_config = ActionModuleConfig(
         movement_dim_size=constants.MOVEMENT_DIM_SIZE,
         movement_step_size=constants.MOVEMENT_STEP_SIZE,
         vocab_size=DEFAULT_VOCAB_SIZE,
-        use_utterances=USE_UTTERANCES)
+        use_utterances=USE_UTTERANCES,
+        use_cuda=False)
 
 default_goal_predicting_module_config = GoalPredictingProcessingModuleConfig(
     processor=get_processor_config_with_input_size(DEFAULT_VOCAB_SIZE),
@@ -159,7 +166,8 @@ default_agent_config = AgentModuleConfig(
         goal_size=constants.GOAL_SIZE,
         vocab_size=DEFAULT_VOCAB_SIZE,
         use_utterances=USE_UTTERANCES,
-        penalize_words=PENALIZE_WORDS)
+        penalize_words=PENALIZE_WORDS,
+        use_cuda=False)
 
 def get_training_config(kwargs):
     return TrainingConfig(
@@ -183,12 +191,14 @@ def get_game_config(kwargs):
             num_colors=kwargs['num_colors'] or default_game_config.num_colors,
             use_utterances=not kwargs['no_utterances'],
             vocab_size=kwargs['vocab_size'] or default_game_config.vocab_size,
-            memory_size=default_game_config.memory_size
+            memory_size=default_game_config.memory_size,
+            use_cuda=kwargs['use_cuda']
             )
 
 def get_agent_config(kwargs):
     vocab_size = kwargs['vocab_size'] or DEFAULT_VOCAB_SIZE
     use_utterances = (not kwargs['no_utterances'])
+    use_cuda = kwargs['use_cuda']
     penalize_words = kwargs['penalize_words']
     oov_prob = kwargs['oov_prob'] or DEFAULT_OOV_PROB
     if use_utterances:
@@ -208,10 +218,12 @@ def get_agent_config(kwargs):
             movement_dim_size=constants.MOVEMENT_DIM_SIZE,
             movement_step_size=constants.MOVEMENT_STEP_SIZE,
             vocab_size=vocab_size,
-            use_utterances=use_utterances)
+            use_utterances=use_utterances,
+            use_cuda=use_cuda)
     word_counter = WordCountingModuleConfig(
             vocab_size=vocab_size,
-            oov_prob=oov_prob)
+            oov_prob=oov_prob,
+            use_cuda=use_cuda)
 
     return AgentModuleConfig(
             time_horizon=kwargs['n_timesteps'] or default_agent_config.time_horizon,
@@ -224,6 +236,7 @@ def get_agent_config(kwargs):
             goal_size=default_agent_config.goal_size,
             vocab_size=vocab_size,
             use_utterances=use_utterances,
-            penalize_words=penalize_words
+            penalize_words=penalize_words,
+            use_cuda=use_cuda
             )
 
