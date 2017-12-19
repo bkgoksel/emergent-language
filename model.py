@@ -307,7 +307,7 @@ class AgentModule(nn.Module):
     def reset(self):
         self.total_cost = Variable(torch.zeros(1))
         if self.using_utterances and self.penalizing_words:
-            self.word_counter = WordCountingModule(config.word_counter)
+            self.word_counter.word_counts = Variable(Tensor(self.vocab_size))
 
     def train(self, mode=True):
         super(AgentModule, self).train(mode)
