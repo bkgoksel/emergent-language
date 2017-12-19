@@ -3,7 +3,8 @@ import numpy as np
 import torch
 import torch.optim as optim
 import configs
-from model import AgentModule, GameModule
+from modules.agent import AgentModule
+from modules.game import GameModule
 from collections import defaultdict
 
 parser = argparse.ArgumentParser(description="Trains the agents for cooperative communication task")

@@ -1,6 +1,5 @@
 import torch
-from collections import defaultdict
-from model import GameModule
+from modules.game import GameModule
 from configs import default_game_config, get_game_config
 import code
 
