@@ -333,10 +333,7 @@ class AgentModule(nn.Module):
         self.training = mode
 
     def update_mem(self, game, mem_str, new_mem, agent, other_agent=None):
-        if self.using_cuda:
-            new_big_mem = Variable(Tensor(game.memories[mem_str].data).cuda())
-        else:
-            new_big_mem = Variable(Tensor(game.memories[mem_str].data))
+        new_big_mem = Variable(Tensor(game.memories[mem_str].data))
         if other_agent is not None:
             new_big_mem[:, agent, other_agent] = new_mem
         else:
