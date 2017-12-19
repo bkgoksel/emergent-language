@@ -24,6 +24,7 @@ parser.add_argument('--world-dim', '-w', type=int, help='if specified sets the s
 parser.add_argument('--oov-prob', '-o', type=int, help='higher value penalize uncommon words less when penalizing words (default 6)')
 parser.add_argument('--load-model-weights', type=str, help='if specified start with saved model weights saved at file given by this argument')
 parser.add_argument('--save-model-weights', type=str, help='if specified save the model weights at file given by this argument')
+parser.add_argument('--use-cuda', action='store_true', help='if specified enables training on CUDA (default disabled)')
 
 def print_losses(epoch, running_costs, losses, game_config):
     for a in range(game_config.min_agents, game_config.max_agents + 1):
@@ -41,6 +42,8 @@ def main():
     print(game_config)
     print(agent_config)
     agent = AgentModule(agent_config)
+    if training_config.use_cuda:
+        agent.cuda()
     optimizer = optim.RMSprop(agent.parameters(), lr=training_config.learning_rate)
     running_costs = []
     losses = defaultdict(lambda:defaultdict(list))
@@ -49,6 +52,8 @@ def main():
         num_landmarks = np.random.randint(game_config.min_landmarks, game_config.max_landmarks+1)
         agent.reset()
         game = GameModule(game_config, num_agents, num_landmarks)
+        if training_config.use_cuda:
+            game.cuda()
         optimizer.zero_grad()
         total_loss = agent(game)
         total_loss.backward()

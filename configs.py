@@ -33,7 +33,8 @@ TrainingConfig = NamedTuple('TrainingConfig', [
     ('load_model', bool),
     ('load_model_file', str),
     ('save_model', bool),
-    ('save_model_file', str)
+    ('save_model_file', str),
+    ('use_cuda', bool)
     ])
 
 GameConfig = NamedTuple('GameConfig', [
@@ -99,7 +100,8 @@ default_training_config = TrainingConfig(
         load_model=False,
         load_model_file="",
         save_model=SAVE_MODEL,
-        save_model_file=DEFAULT_MODEL_FILE)
+        save_model_file=DEFAULT_MODEL_FILE,
+        use_cuda=False)
 
 default_word_counter_config = WordCountingModuleConfig(
         vocab_size=DEFAULT_VOCAB_SIZE,
@@ -166,7 +168,8 @@ def get_training_config(kwargs):
             load_model=bool(kwargs['load_model_weights']),
             load_model_file=kwargs['load_model_weights'] or default_training_config.load_model_file,
             save_model=default_training_config.save_model,
-            save_model_file=kwargs['save_model_weights'] or default_training_config.save_model_file)
+            save_model_file=kwargs['save_model_weights'] or default_training_config.save_model_file,
+            use_cuda=kwargs['use_cuda'])
 
 def get_game_config(kwargs):
     return GameConfig(
