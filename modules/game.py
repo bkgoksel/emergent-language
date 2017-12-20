@@ -105,7 +105,7 @@ class GameModule(nn.Module):
     Returns:
         - scalar: total cost of all games in the batch
     """
-    def forward(self, movements, goal_predictions, utterances=None):
+    def forward(self, movements, goal_predictions, utterances):
         self.locations = self.locations + movements
         agent_baselines = self.locations[:, :self.num_agents]
         self.observations = self.locations.unsqueeze(1)- agent_baselines.unsqueeze(2)

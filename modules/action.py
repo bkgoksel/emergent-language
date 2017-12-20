@@ -53,8 +53,7 @@ class ActionModule(nn.Module):
                 max_utter = utter.max(1)[1]
                 max_utter = max_utter.data[0]
                 utterance[0, max_utter] = 1
-        final_movement = (movement * 2 * self.movement_step_size) - self.movement_step_size
-        if self.using_utterances:
-            return final_movement, utterance, mem
         else:
-            return final_movement, mem
+            utterance = None
+        final_movement = (movement * 2 * self.movement_step_size) - self.movement_step_size
+        return final_movement, utterance, mem
