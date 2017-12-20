@@ -86,14 +86,19 @@ class AgentModule(nn.Module):
         else:
             return None
 
+    def get_action(self, game, agent, physical_feat, utterance_feat, movements, utterances):
+        movement, utterance, new_mem = self.action_processor(physical_feat, game.observed_goals[:,agent], game.memories["action"][:,agent], self.training, utterance_feat)
+        self.update_mem(game, "action", new_mem, agent)
+        movements[:,agent,:] = movement
+        if self.using_utterances:
+            utterances[:,agent,:] = utterance
+
     def forward(self, game):
-        if not self.training:
-            timesteps = []
+        timesteps = []
         for t in range(self.time_horizon):
             movements = Variable(self.Tensor(game.batch_size, game.num_entities, self.movement_dim_size).zero_())
             utterances = None
             goal_predictions = None
-
             if self.using_utterances:
                 utterances = Variable(self.Tensor(game.batch_size, game.num_agents, self.vocab_size))
                 goal_predictions = Variable(self.Tensor(game.batch_size, game.num_agents, game.num_agents, self.goal_size))
@@ -101,11 +106,7 @@ class AgentModule(nn.Module):
             for agent in range(game.num_agents):
                 physical_feat = self.get_physical_feat(game, agent)
                 utterance_feat = self.get_utterance_feat(game, agent, goal_predictions)
-                movement, utterance, new_mem = self.action_processor(physical_feat, game.observed_goals[:,agent], game.memories["action"][:,agent], self.training, utterance_feat)
-                self.update_mem(game, "action", new_mem, agent)
-                movements[:,agent,:] = movement
-                if self.using_utterances:
-                    utterances[:,agent,:] = utterance
+                self.get_action(game, agent, physical_feat, utterance_feat, movements, utterances)
 
             cost = game(movements, goal_predictions, utterances)
             if self.penalizing_words:
@@ -119,7 +120,4 @@ class AgentModule(nn.Module):
                     'loss': cost})
                 if self.using_utterances:
                     timesteps[-1]['utterances'] = utterances
-        if self.training:
-            return self.total_cost
-        else:
-            return self.total_cost, timesteps
+        return self.total_cost, timesteps
