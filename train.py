@@ -54,7 +54,7 @@ def main():
     if training_config.use_cuda:
         agent.cuda()
     optimizer = RMSprop(agent.parameters(), lr=training_config.learning_rate)
-    #scheduler = ReduceLROnPlateau(optimizer, 'min', verbose=True, cooldown=5)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', verbose=True, cooldown=5)
     losses = defaultdict(lambda:defaultdict(list))
     dists = defaultdict(lambda:defaultdict(list))
     for epoch in range(training_config.num_epochs):
@@ -69,12 +69,13 @@ def main():
         total_loss.backward()
         optimizer.step()
         per_agent_loss = total_loss.data[0] / num_agents / game_config.batch_size
-        #scheduler.step(per_agent_loss)
         losses[num_agents][num_landmarks].append(per_agent_loss)
         dist = game.get_avg_agent_to_goal_distance()
         avg_dist = dist / num_agents / game_config.batch_size
         dists[num_agents][num_landmarks].append(avg_dist)
         print_losses(epoch, losses, dists, game_config)
+        if num_agents == game_config.max_agents and num_landmarks == game_config.max_landmarks:
+            scheduler.step(losses[game_config.max_agents][game_config.max_landmarks][-1])
     if training_config.save_model:
         torch.save(agent, training_config.save_model_file)
         print("Saved agent model weights at %s" % training_config.save_model_file)
