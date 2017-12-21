@@ -28,12 +28,16 @@ parser.add_argument('--load-model-weights', type=str, help='if specified start w
 parser.add_argument('--save-model-weights', type=str, help='if specified save the model weights at file given by this argument')
 parser.add_argument('--use-cuda', action='store_true', help='if specified enables training on CUDA (default disabled)')
 
-def print_losses(epoch, running_costs, losses, game_config):
+def print_losses(epoch, losses, dists, game_config):
     for a in range(game_config.min_agents, game_config.max_agents + 1):
         for l in range(game_config.min_landmarks, game_config.max_landmarks + 1):
             loss = losses[a][l][-1] if len(losses[a][l]) > 0 else 0
             min_loss = min(losses[a][l]) if len(losses[a][l]) > 0 else 0
-            print("[epoch %d][%d agents, %d landmarks][%d batches][last: %f][min: %f]" % (epoch, a, l, len(losses[a][l]), loss, min_loss))
+
+            dist = dists[a][l][-1] if len(dists[a][l]) > 0 else 0
+            min_dist = min(dists[a][l]) if len(dists[a][l]) > 0 else 0
+
+            print("[epoch %d][%d agents, %d landmarks][%d batches][last loss: %f][min loss: %f][last dist: %f][min dist: %f]" % (epoch, a, l, len(losses[a][l]), loss, min_loss, dist, min_dist))
         print("----")
     print("_________________________")
 
@@ -51,8 +55,8 @@ def main():
         agent.cuda()
     optimizer = RMSprop(agent.parameters(), lr=training_config.learning_rate)
     #scheduler = ReduceLROnPlateau(optimizer, 'min', verbose=True, cooldown=5)
-    running_costs = []
     losses = defaultdict(lambda:defaultdict(list))
+    dists = defaultdict(lambda:defaultdict(list))
     for epoch in range(training_config.num_epochs):
         num_agents = np.random.randint(game_config.min_agents, game_config.max_agents+1)
         num_landmarks = np.random.randint(game_config.min_landmarks, game_config.max_landmarks+1)
@@ -66,9 +70,11 @@ def main():
         optimizer.step()
         per_agent_loss = total_loss.data[0] / num_agents / game_config.batch_size
         #scheduler.step(per_agent_loss)
-        running_costs.append(per_agent_loss)
         losses[num_agents][num_landmarks].append(per_agent_loss)
-        print_losses(epoch, running_costs, losses, game_config)
+        dist = game.get_avg_agent_to_goal_distance()
+        avg_dist = dist / num_agents / game_config.batch_size
+        dists[num_agents][num_landmarks].append(avg_dist)
+        print_losses(epoch, losses, dists, game_config)
     if training_config.save_model:
         torch.save(agent, training_config.save_model_file)
         print("Saved agent model weights at %s" % training_config.save_model_file)

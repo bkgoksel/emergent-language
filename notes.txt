@@ -10,6 +10,7 @@ TODO:
     [x] Make this a training flag
     [ ] Test how this affects performance
 [ ] Goal predictions(relative to yourself and agent index)
+[ ] Get avg final distance of agents to their goals
 
 LEARNING END:
 -------------

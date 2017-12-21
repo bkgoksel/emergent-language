@@ -155,3 +155,23 @@ class GameModule(nn.Module):
     """
     def compute_movement_cost(self, movements):
         return torch.sum(torch.sqrt(torch.sum(torch.pow(movements, 2), -1)))
+
+    def get_avg_agent_to_goal_distance(self):
+        goal_data = self.goals.data
+        loc_data = self.locations.data
+
+        sort_idxs = torch.sort(goal_data[:,:,2])[1]
+        sorted_goals = self.Tensor(goal_data.size())
+        for b in range(self.batch_size):
+            sorted_goals[b] = goal_data[b][sort_idxs[b]]
+        sorted_goals = sorted_goals[:,:,:2]
+        return torch.sum(
+                    torch.sqrt(
+                        torch.sum(
+                            torch.pow(
+                                loc_data[:,:self.num_agents,:] - sorted_goals,
+                                2),
+                            -1)
+                        )
+                    )
+
