@@ -1,7 +1,8 @@
 import argparse
 import numpy as np
 import torch
-import torch.optim as optim
+from torch.optim import RMSprop
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 import configs
 from modules.agent import AgentModule
 from modules.game import GameModule
@@ -31,7 +32,8 @@ def print_losses(epoch, running_costs, losses, game_config):
     for a in range(game_config.min_agents, game_config.max_agents + 1):
         for l in range(game_config.min_landmarks, game_config.max_landmarks + 1):
             loss = losses[a][l][-1] if len(losses[a][l]) > 0 else 0
-            print("[epoch %d][Last batch cost for [%d agents, %d landmarks][%d batches]: %f]" % (epoch, a, l, len(losses[a][l]), loss))
+            min_loss = min(losses[a][l]) if len(losses[a][l]) > 0 else 0
+            print("[epoch %d][%d agents, %d landmarks][%d batches][last: %f][min: %f]" % (epoch, a, l, len(losses[a][l]), loss, min_loss))
 
 def main():
     args = vars(parser.parse_args())
@@ -45,7 +47,8 @@ def main():
     agent = AgentModule(agent_config)
     if training_config.use_cuda:
         agent.cuda()
-    optimizer = optim.RMSprop(agent.parameters(), lr=training_config.learning_rate)
+    optimizer = RMSprop(agent.parameters(), lr=training_config.learning_rate)
+    #scheduler = ReduceLROnPlateau(optimizer, 'min', verbose=True, cooldown=5)
     running_costs = []
     losses = defaultdict(lambda:defaultdict(list))
     for epoch in range(training_config.num_epochs):
@@ -56,10 +59,11 @@ def main():
         if training_config.use_cuda:
             game.cuda()
         optimizer.zero_grad()
-        total_loss = agent(game)
+        total_loss, _ = agent(game)
         total_loss.backward()
         optimizer.step()
         per_agent_loss = total_loss.data[0] / num_agents / game_config.batch_size
+        #scheduler.step(per_agent_loss)
         running_costs.append(per_agent_loss)
         losses[num_agents][num_landmarks].append(per_agent_loss)
         print_losses(epoch, running_costs, losses, game_config)

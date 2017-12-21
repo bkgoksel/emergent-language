@@ -3,9 +3,9 @@ from typing import NamedTuple, Any, List
 import numpy as np
 import constants
 
-DEFAULT_BATCH_SIZE = 1024
-DEFAULT_NUM_EPOCHS = 20000
-DEFAULT_LR = 1e-4
+DEFAULT_BATCH_SIZE = 512
+DEFAULT_NUM_EPOCHS = 1000
+DEFAULT_LR = 5e-4
 SAVE_MODEL = True
 DEFAULT_MODEL_FILE = 'latest.pt'
 
