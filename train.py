@@ -34,6 +34,8 @@ def print_losses(epoch, running_costs, losses, game_config):
             loss = losses[a][l][-1] if len(losses[a][l]) > 0 else 0
             min_loss = min(losses[a][l]) if len(losses[a][l]) > 0 else 0
             print("[epoch %d][%d agents, %d landmarks][%d batches][last: %f][min: %f]" % (epoch, a, l, len(losses[a][l]), loss, min_loss))
+        print("----")
+    print("_________________________")
 
 def main():
     args = vars(parser.parse_args())
