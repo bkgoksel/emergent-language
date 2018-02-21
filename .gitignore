@@ -5,3 +5,5 @@ mypy.ini
 *.sw*
 *.pt
 *.out
+*.pyc
+venv/
