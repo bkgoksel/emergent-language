@@ -9,8 +9,12 @@ TODO:
     [x] Make it possible to have agent get its own goal, determinable with a flag
     [x] Make this a training flag
     [ ] Test how this affects performance
-[ ] Goal predictions(relative to yourself and agent index)
-[ ] Get avg final distance of agents to their goals
+[x] Get avg final distance of agents to their goals
+[x] Goal predictions(relative to yourself and agent index)
+
+HYPERPARAMETER TUNING:
+-------------------------
+
 
 LEARNING END:
 -------------

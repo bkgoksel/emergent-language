@@ -60,6 +60,7 @@ class GameModule(nn.Module):
         # [batch_size, num_entities, 2]
         self.physical = Variable(torch.cat((colors,shapes), 2).float())
 
+        #TODO: Bad for loop?
         for b in range(self.batch_size):
             goal_agents[b] = torch.randperm(self.num_agents)
 
@@ -89,6 +90,14 @@ class GameModule(nn.Module):
                 self.memories["utterance"] = Variable(torch.zeros(self.batch_size, self.num_agents, self.num_agents, config.memory_size))
 
         agent_baselines = self.locations[:, :self.num_agents, :]
+
+        sort_idxs = torch.sort(self.goals[:,:,2])[1]
+        self.sorted_goals = Variable(self.Tensor(self.goals.size()))
+        # TODO: Bad for loop?
+        for b in range(self.batch_size):
+            self.sorted_goals[b] = self.goals[b][sort_idxs[b]]
+        self.sorted_goals = self.sorted_goals[:,:,:2]
+
         # [batch_size, num_agents, num_entities, 2]
         self.observations = self.locations.unsqueeze(1) - agent_baselines.unsqueeze(2)
 
@@ -96,6 +105,8 @@ class GameModule(nn.Module):
 
         # [batch_size, num_agents, 2] [batch_size, num_agents, 1]
         self.observed_goals = torch.cat((new_obs, goal_agents), dim=2)
+
+
 
     """
     Updates game state given all movements and utterances and returns accrued cost
@@ -129,16 +140,11 @@ class GameModule(nn.Module):
     agent locations are stored as [batch_size, num_agents + num_landmarks, entity_embed_size]
     """
     def compute_physical_cost(self):
-        sort_idxs = torch.sort(self.goals[:,:,2])[1]
-        sorted_goals = Variable(self.Tensor(self.goals.size()))
-        for b in range(self.batch_size):
-            sorted_goals[b] = self.goals[b][sort_idxs[b]]
-        sorted_goals = sorted_goals[:,:,:2]
         return 2*torch.sum(
                     torch.sqrt(
                         torch.sum(
                             torch.pow(
-                                self.locations[:,:self.num_agents,:] - sorted_goals,
+                                self.locations[:,:self.num_agents,:] - self.sorted_goals,
                                 2),
                             -1)
                         )
@@ -146,9 +152,31 @@ class GameModule(nn.Module):
 
     """
     Computes the total cost agents get from predicting others' goals
+    goal_predictions: [batch_size, num_agents, num_agents, goal_size]
+    goal_predictions[., a_i, a_j, :] = a_i's prediction of a_j's goal with location relative to a_i
+    We want:
+        real_goal_locations[., a_i, a_j, :] = a_j's goal with location relative to a_i
+    We have:
+        goals[., a_j, :] = a_j's goal with absolute location
+        observed_goals[., a_j, :] = a_j's goal with location relative to a_j
+    Which means we want to build an observed_goals-like tensor but relative to each agent
+        real_goal_locations[., a_i, a_j, :] = goals[., a_j, :] - locations[a_i]
+
+
     """
     def compute_goal_pred_cost(self, goal_predictions):
-        return 0
+        relative_goal_locs = self.goals.unsqueeze(1)[:,:,:,:2] - self.locations.unsqueeze(2)[:, :self.num_agents, :, :]
+        goal_agents = self.goals.unsqueeze(1)[:,:,:,2:].expand_as(relative_goal_locs)[:,:,:,-1:]
+        relative_goals =  torch.cat((relative_goal_locs, goal_agents), dim=3)
+        return torch.sum(
+                torch.sqrt(
+                    torch.sum(
+                        torch.pow(
+                            goal_predictions - relative_goals,
+                            2),
+                        -1)
+                    )
+                )
 
     """
     Computes the total cost agents get from moving
@@ -157,19 +185,11 @@ class GameModule(nn.Module):
         return torch.sum(torch.sqrt(torch.sum(torch.pow(movements, 2), -1)))
 
     def get_avg_agent_to_goal_distance(self):
-        goal_data = self.goals.data
-        loc_data = self.locations.data
-
-        sort_idxs = torch.sort(goal_data[:,:,2])[1]
-        sorted_goals = self.Tensor(goal_data.size())
-        for b in range(self.batch_size):
-            sorted_goals[b] = goal_data[b][sort_idxs[b]]
-        sorted_goals = sorted_goals[:,:,:2]
         return torch.sum(
                     torch.sqrt(
                         torch.sum(
                             torch.pow(
-                                loc_data[:,:self.num_agents,:] - sorted_goals,
+                                self.locations[:,:self.num_agents,:] - self.sorted_goals,
                                 2),
                             -1)
                         )
